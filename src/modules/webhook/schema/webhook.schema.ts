@@ -24,20 +24,7 @@ export class Webhook {
     isSend: number;
 
     @Prop({ type: String })
-    lead_uuid?: string;
-
-    @Prop({ type: String, index: true, unique: true })
-    reference_id?: string;
-
-    @Prop({ type: Number, default: 0 })
-    retryCount: number;
-
-    @Prop({
-        type: String,
-        enum: ["pending", "success", "failed"],
-        default: "pending"
-    })
-    status: string;
+    referenceUuid?: string;
 
     @Prop({ type: Number, default: null })
     response_code?: number;
@@ -50,6 +37,18 @@ export class Webhook {
 
     @Prop({ type: MongooseSchema.Types.Mixed, default: null })
     shareData?: Record<string, any>;
+
+    @Prop({ type: String, index: true })
+    reference_id: string;
+
+    @Prop({ type: String })
+    lead_uuid: string;
+
+    @Prop({ type: String, default: "pending" })
+    status: string;
+
+    @Prop({ type: Number, default: 0 })
+    retryCount: number;
 }
 
 export const WebhookSchema = SchemaFactory.createForClass(Webhook);
