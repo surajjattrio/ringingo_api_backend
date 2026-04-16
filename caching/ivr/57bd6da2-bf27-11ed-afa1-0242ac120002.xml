@@ -1,0 +1,22 @@
+<document type="freeswitch/xml">
+  <section name="configuration">
+    <configuration name="ivr.conf" description="IVR menus">
+  <menus>
+    <menu name="57bd6da2-bf27-11ed-afa1-0242ac120002" greet-long="/usr/local/freeswitch/sounds/pbx/astpp-badnumber.wav" greet-short="/usr/local/freeswitch/sounds/pbx/astpp-badnumber.wav" invalid-sound="/usr/local/freeswitch/sounds/pbx/astpp-badnumber.wav" exit-sound="" timeout="10000" inter-digit-timeout="2000" max-timeouts="3" max-failures="3" digit-len="20">
+      <entry action="menu-exec-app" digits="1" param="transfer 1001 XML ${domain_name}"/>
+      <entry action="menu-exec-app" digits="2" param="conference CONF_NAME"/>
+      <entry action="menu-exec-app" digits="3" param="ivr IVR_NAME"/>
+      <entry action="menu-exec-app" digits="4" param="transfer DIAL_STRING XML ${domain_name}"/>
+      <entry action="menu-exec-app" digits="5" param="voicemail default ${domain_name} SIP_NUMBER"/>
+      <entry action="menu-exec-app" digits="6" param="transfer PSTN_NUMBER XML ${domain_name}"/>
+      <entry action="menu-exec-app" digits="7" param="transfer DIAL_STRING XML ${domain_name}"/>
+      <entry action="menu-top" digits="8"/>
+      <entry action="menu-exec-app" digits="9" param="transfer 102 XML ${domain_name}"/>
+      <entry action="menu-top" digits="*"/>
+      <entry action="menu-exec-app" digits="#" param="ivr IVR_NAME"/>
+    </menu>
+  </menus>
+  </configuration>  
+  </section>
+</document>
+

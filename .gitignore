@@ -1,0 +1,11 @@
+.vscode/
+node_modules/
+build/
+.env
+.env copy
+package-lock.json
+*.wav
+*.csv
+*.zip
+.agents
+yarn.lock

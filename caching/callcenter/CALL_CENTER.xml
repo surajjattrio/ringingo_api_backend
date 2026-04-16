@@ -1,0 +1,127 @@
+<document type="freeswitch/xml">
+<section name="configuration">
+<configuration name="callcenter.conf" description="CallCenter">
+<settings>
+</settings>
+<queues>
+<queue name="daccb613-e75c-4342-9a3f-314e6d38ed19@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="1c5b915d-d96b-4614-944b-0040350727b3@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="d86e809d-95a8-4265-8a00-c09d83ba1eeb@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="1fd6a143-99ef-4a0e-bf95-9fc0687e5e00@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="bc948430-a1ae-44bc-808e-4baca4a5e6d8@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="8c933d26-3b7c-417a-ad7f-556d77722bf7@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="4fe4a2fa-cc99-4da7-aaa8-72f5cdae59a6@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="a3419ae5-92b8-4e0a-8f99-6f2e05ec7311@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="bfba1c44-e56a-4653-bc5a-69349ddd8758@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="0368268e-b69e-45b2-85df-5db47356f251@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="038ed1db-7fb6-4e8e-947f-1cef73f4d235@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="53b05e5d-62d6-440d-9f06-b8310339ac3b@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+<queue name="6c9d620f-9eb2-4db9-8165-677abfccd187@default">
+<param name="strategy" value="ring-all"/>
+<param name="moh-sound" value="/opt/caching/upload/7d156a37-70b5-43dd-881d-153a8608ce16.wav"/>
+<param name="max-wait-time" value="60"/>
+<param name="tier-rules-apply" value="true"/>
+<param name="tier-rule-wait-second" value="5"/>
+</queue>
+</queues>
+<agents>
+<agent name="707@default" type='callback' contact="[leg_timeout=10]user/707@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="707@default" type='callback' contact="[leg_timeout=10]user/707@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="707@default" type='callback' contact="[leg_timeout=10]user/707@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="707@default" type='callback' contact="[leg_timeout=10]user/707@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="707@default" type='callback' contact="[leg_timeout=10]user/707@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+<agent name="undefined@default" type='callback' contact="[leg_timeout=10]user/undefined@undefined" status='Available' max-no-answer='100' wrap-up-time='2' reject-delay-time='2' busy-delay-time='60' />
+</agents>
+<tiers>
+<tier agent="707@default" queue='daccb613-e75c-4342-9a3f-314e6d38ed19@default' level='12' position='12'/>
+<tier agent="707@default" queue='1c5b915d-d96b-4614-944b-0040350727b3@default' level='12' position='12'/>
+<tier agent="707@default" queue='d86e809d-95a8-4265-8a00-c09d83ba1eeb@default' level='12' position='12'/>
+<tier agent="707@default" queue='1fd6a143-99ef-4a0e-bf95-9fc0687e5e00@default' level='12' position='12'/>
+<tier agent="707@default" queue='1fd6a143-99ef-4a0e-bf95-9fc0687e5e00@default' level='10' position='10'/>
+<tier agent="undefined@default" queue='a3419ae5-92b8-4e0a-8f99-6f2e05ec7311@default' level='' position=''/>
+<tier agent="undefined@default" queue='bfba1c44-e56a-4653-bc5a-69349ddd8758@default' level='' position=''/>
+<tier agent="undefined@default" queue='0368268e-b69e-45b2-85df-5db47356f251@default' level='' position=''/>
+<tier agent="undefined@default" queue='038ed1db-7fb6-4e8e-947f-1cef73f4d235@default' level='' position=''/>
+<tier agent="undefined@default" queue='53b05e5d-62d6-440d-9f06-b8310339ac3b@default' level='' position=''/>
+<tier agent="undefined@default" queue='6c9d620f-9eb2-4db9-8165-677abfccd187@default' level='' position=''/>
+</tiers>
+</configuration>
+</section>
+</document>

@@ -1,0 +1,657 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+        <section name="dialplan" description="">
+                <context name="public" destination_number="#EXT_USERNAME#" hostname="harsh">
+<extension name="user_exists" continue="true" uuid="e8293196-406d-49f5-8fa8-7ca47d13d160">
+        <condition field="${loopback_leg}" expression="^B$" break="never">
+                <action application="set" data="domain_name=${context}" inline="true"/>
+        </condition>
+        <condition field="" expression="">
+                <action application="set" data="user_exists=${user_exists id ${destination_number} ${domain_name}}" inline="true"/>
+                <action application="set" data="from_user_exists=${user_exists id ${sip_from_user} ${sip_from_host}}" inline="true"/>
+        </condition>
+        <condition field="${user_exists}" expression="^true$">
+                <action application="set" data="extension_uuid=${user_data ${destination_number}@${domain_name} var extension_uuid}" inline="true"/>
+                <action application="set" data="extension_caller_id_name=${user_data ${destination_number}@${domain_name} var effective_caller_id_name}" inline="true"/>
+                <action application="set" data="extension_caller_id_number=${user_data ${destination_number}@${domain_name} var effective_caller_id_number}" inline="true"/>
+                <action application="set" data="forward_all_enabled=${user_data ${destination_number}@${domain_name} var forward_all_enabled}" inline="true"/>
+                <action application="set" data="forward_all_destination=${user_data ${destination_number}@${domain_name} var forward_all_destination}" inline="true"/>
+                <action application="set" data="forward_busy_enabled=${user_data ${destination_number}@${domain_name} var forward_busy_enabled}" inline="true"/>
+                <action application="set" data="forward_busy_destination=${user_data ${destination_number}@${domain_name} var forward_busy_destination}" inline="true"/>
+                <action application="set" data="forward_no_answer_enabled=${user_data ${destination_number}@${domain_name} var forward_no_answer_enabled}" inline="true"/>
+                <action application="set" data="forward_no_answer_destination=${user_data ${destination_number}@${domain_name} var forward_no_answer_destination}" inline="true"/>
+                <action application="set" data="forward_user_not_registered_enabled=${user_data ${destination_number}@${domain_name} var forward_user_not_registered_enabled}" inline="true"/>
+                <action application="set" data="forward_user_not_registered_destination=${user_data ${destination_number}@${domain_name} var forward_user_not_registered_destination}" inline="true"/>
+                <action application="set" data="forward_all_enabled=${user_data ${destination_number}@${domain_name} var forward_all_enabled}" inline="true"/>
+                <action application="set" data="follow_me_enabled=${user_data ${destination_number}@${domain_name} var follow_me_enabled}" inline="true"/>
+                <action application="set" data="do_not_disturb=${user_data ${destination_number}@${domain_name} var do_not_disturb}" inline="true"/>
+                <action application="set" data="call_timeout=${user_data ${destination_number}@${domain_name} var call_timeout}" inline="true"/>
+                <action application="set" data="missed_call_app=${user_data ${destination_number}@${domain_name} var missed_call_app}" inline="true"/>
+                <action application="set" data="missed_call_data=${user_data ${destination_number}@${domain_name} var missed_call_data}" inline="true"/>
+                <action application="set" data="toll_allow=${user_data ${destination_number}@${domain_name} var toll_allow}" inline="true"/>
+                <action application="set" data="call_screen_enabled=${user_data ${destination_number}@${domain_name} var call_screen_enabled}" inline="true"/>
+                <action application="set" data="user_record=${user_data ${destination_number}@${domain_name} var user_record}" inline="true"/>
+        </condition>
+</extension>
+<extension name="caller-details" continue="true" uuid="41368423-ca8f-482f-bf60-2651d8468ff1">
+        <condition field="" expression="" break="never">
+                <action application="set" data="caller_destination=${sip_to_user}" inline="true"/>
+                <action application="set" data="caller_id_name=${caller_id_name}" inline="true"/>
+                <action application="set" data="caller_id_number=${caller_id_number}"/>
+        </condition>
+</extension>
+<extension name="caller-details" continue="true" uuid="31c2415c-b808-4771-85b6-3365fb8d6c47">
+        <condition field="${caller_destination}" expression="^$" break="never">
+                <action application="set" data="caller_destination=${destination_number}" inline="true"/>
+                <action application="set" data="caller_id_name=${caller_id_name}" inline="true"/>
+                <action application="set" data="caller_id_number=${caller_id_number}"/>
+        </condition>
+</extension>
+<extension name="global-variables" continue="true" uuid="58e09387-0aa0-48f3-9b7b-cc992b3ae2e3">
+        <condition field="" expression="">
+                <action application="set" data="RFC2822_DATE=${strftime(%a, %d %b %Y %T %z)}"/>
+        </condition>
+</extension>
+<extension name="domain-variables" continue="true" uuid="ec1d16bf-f1ef-4de3-b964-957ac1b54b6c">
+        <condition field="" expression="">
+                <action application="export" data="origination_callee_id_name=${destination_number}"/>
+                <action application="set" data="operator=1000" inline="true"/>
+        </condition>
+</extension>
+<extension name="clear_sip_auto_answer" continue="true" uuid="8051720f-7877-4f78-a216-3970794c8d83">
+        <condition field="${click_to_call}" expression="true"/>
+        <condition field="${sip_h_Call-Info}" expression="answer-after=0">
+                <action application="export" data="sip_h_Call-Info="/>
+        </condition>
+</extension>
+<extension name="is_loopback" continue="true" uuid="7cade6ba-5bef-4054-bc8d-014a72ef7252">
+        <condition field="${is_follow_me_loopback}" expression="true">
+                <action application="set" data="from_orig_user_exists=${user_exists id ${username} ${domain_name}}" inline="true"/>
+        </condition>
+        <condition field="${from_orig_user_exists}" expression="^true$">
+                <action application="set" data="outbound_caller_id_number=${user_data ${username}@${domain} var outbound_caller_id_number}" inline="true"/>
+                <action application="set" data="outbound_caller_id_name=${user_data ${username}@${domain} var outbound_caller_id_name}" inline="true"/>
+        </condition>
+</extension>
+<extension name="call-direction" continue="true" uuid="c8b1f58d-f2ea-4103-a057-f8b21d79ca1f">
+        <condition field="${call_direction}" expression="^$" break="never">
+                <action application="export" data="call_direction=local" inline="true"/>
+        </condition>
+</extension>
+<extension name="user_record" continue="true" uuid="fd0b8f34-971d-45e8-ac70-7bc866cb0b23">
+        <condition field="${user_exists}" expression="^true$" break="never"/>
+        <condition field="${user_record}" expression="^all$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^inbound$" break="never"/>
+        <condition field="${user_record}" expression="^inbound$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^outbound$" break="never"/>
+        <condition field="${user_record}" expression="^outbound$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^local$" break="never"/>
+        <condition field="${user_record}" expression="^local$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${from_user_exists}" expression="^true$" break="never">
+                <action application="set" data="from_user_record=${user_data ${sip_from_user}@${sip_from_host} var user_record}" inline="true"/>
+        </condition>
+        <condition field="${from_user_exists}" expression="^true$" break="never"/>
+        <condition field="${from_user_record}" expression="^all$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${from_user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^inbound$" break="never"/>
+        <condition field="${from_user_record}" expression="^inbound$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${from_user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^outbound$" break="never"/>
+        <condition field="${from_user_record}" expression="^outbound$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${from_user_exists}" expression="^true$" break="never"/>
+        <condition field="${call_direction}" expression="^local$" break="never"/>
+        <condition field="${from_user_record}" expression="^local$" break="never">
+                <action application="set" data="record_session=true" inline="true"/>
+        </condition>
+        <condition field="${record_session}" expression="^true$">
+                <action application="set" data="record_path=${recordings_dir}/${domain_name}/archive/${strftime(%Y)}/${strftime(%b)}/${strftime(%d)}" inline="true"/>
+                <action application="set" data="record_name=${uuid}.${record_ext}" inline="true"/>
+                <action application="mkdir" data="${record_path}"/>
+                <action application="set" data="recording_follow_transfer=true" inline="true"/>
+                <action application="bind_digit_action" data="local,*5,api:uuid_record,${uuid} mask ${recordings_dir}/${domain_name}/archive/${strftime(%Y)}/${strftime(%b)}/${strftime(%d)}/${uuid}.${record_ext},both,self"/>
+                <action application="bind_digit_action" data="local,*6,api:uuid_record,${uuid} unmask ${recordings_dir}/${domain_name}/archive/${strftime(%Y)}/${strftime(%b)}/${strftime(%d)}/${uuid}.${record_ext},both,self"/>
+                <action application="set" data="record_append=true" inline="true"/>
+                <action application="set" data="record_in_progress=true" inline="true"/>
+                <action application="set" data="RECORD_ANSWER_REQ=true"/>
+                <action application="record_session" data="${record_path}/${record_name}"/>
+        </condition>
+</extension>
+<extension name="rtp_has_crypto" continue="true" uuid="7d7bcbdd-1b9b-4c06-9ef2-9e4247081804">
+        <condition field="${rtp_has_crypto}" expression="^(AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH)$">
+                <action application="set" data="rtp_secure_media=optional" inline="true"/>
+                <action application="export" data="rtp_secure_media=optional" inline="true"/>
+        </condition>
+</extension>
+<extension name="redial" continue="true" uuid="fad00386-956a-427c-8d61-749afac52aea">
+        <condition field="destination_number" expression="^(redial|\*870)$" break="on-true">
+                <action application="transfer" data="${hash(select/${domain_name}-last_dial/${caller_id_number})}"/>
+        </condition>
+        <condition field="" expression="" break="never">
+                <action application="hash" data="insert/${domain_name}-last_dial/${caller_id_number}/${destination_number}"/>
+        </condition>
+</extension>
+<extension name="speed_dial" continue="false" uuid="be97cd23-87e5-4520-97e1-8e361ef384c6">
+        <condition field="destination_number" expression="^\*0(.*)$">
+                <action application="set" data="permissions=false"/>
+              <!--  <action application="lua" data="app.lua speed_dial $1"/> -->
+        </condition>
+</extension>
+<extension name="default_caller_id" continue="true" uuid="63e0add6-8ac5-414b-a303-5705b3073117">
+        <condition field="${call_direction}" expression="outbound"/>
+        <condition field="${emergency_caller_id_name}" expression="^$" break="never">
+                <action application="set" data="emergency_caller_id_name=${default_emergency_caller_id_name}" inline="true"/>
+        </condition>
+        <condition field="${call_direction}" expression="outbound"/>
+        <condition field="${emergency_caller_id_number}" expression="^$" break="never">
+                <action application="set" data="emergency_caller_id_number=${default_emergency_caller_id_number}" inline="true"/>
+        </condition>
+        <condition field="${call_direction}" expression="outbound"/>
+        <condition field="${loopback_leg}" expression="^$"/>
+        <condition field="${outbound_caller_id_name}" expression="^$" break="never">
+                <action application="set" data="outbound_caller_id_name=${default_outbound_caller_id_name}" inline="true"/>
+        </condition>
+        <condition field="${call_direction}" expression="outbound"/>
+        <condition field="${loopback_leg}" expression="^$"/>
+        <condition field="${outbound_caller_id_number}" expression="^$" break="never">
+                <action application="set" data="outbound_caller_id_number=${default_outbound_caller_id_number}" inline="true"/>
+        </condition>
+</extension>
+<extension name="user_hold_music" continue="true" uuid="88aad78d-8977-45ec-9594-ff65c3c1276c">
+        <condition field="${user_exists}" expression="true"/>
+        <condition field="${hold_music}" expression="^$"/>
+        <condition field="${from_user_exists}" expression="false">
+                <action application="set" data="hold_music=${user_data ${destination_number}@${domain_name} var hold_music}" inline="true"/>
+        </condition>
+</extension>
+<extension name="agent_status" continue="false" uuid="56979a40-c448-4f4f-b522-847243758690">
+        <condition field="destination_number" expression="^\*22$" break="on-true">
+                <action application="set" data="agent_id=${sip_from_user}"/>
+           <!--     <action application="lua" data="app.lua agent_status"/> -->
+        </condition>
+        <condition field="destination_number" expression="^(?:agent\+|\*22)(.+)$">
+                <action application="set" data="agent_id=$1"/>
+           <!--     <action application="lua" data="app.lua agent_status"/> -->
+        </condition>
+</extension>
+<extension name="agent_status_id" continue="false" uuid="a71f6b11-1ef7-4251-b985-ec379332c208">
+        <condition field="destination_number" expression="^\*23$">
+                <action application="set" data="agent_id="/>
+         <!--       <action application="lua" data="app.lua agent_status"/> -->
+        </condition>
+</extension>
+<extension name="agent-status-break" continue="false" uuid="d70607b0-5bf0-483c-a03a-265f05eb4c32">
+        <condition field="destination_number" expression="^\*24$" break="on-true">
+                <action application="set" data="agent_id=${sip_from_user}"/>
+                <action application="set" data="agent_action=break"/>
+            <!--    <action application="lua" data="app.lua agent_status"/> -->
+        </condition>
+        <condition field="destination_number" expression="^(?:agent\+|\*24)(.+)$">
+                <action application="set" data="agent_id=$1"/>
+                <action application="set" data="agent_action=break"/>
+          <!--      <action application="lua" data="app.lua agent_status"/> -->
+        </condition>
+</extension>
+<extension name="Harsh" continue="" uuid="35ddb2ad-b64a-43b9-b45c-fd10cf8b7cd0">
+        <condition field="destination_number" expression="^([^#]+#)(.*)$" break="never">
+                <action application="set" data="caller_id_name=$2"/>
+        </condition>
+        <condition field="destination_number" expression="^(callcenter\+)?147147$">
+                <action application="answer" data=""/>
+                <action application="set" data="call_center_queue_uuid=5476289a-664d-447f-adc9-c5c7c96c4509"/>
+                <action application="set" data="queue_extension=147147"/>
+                <action application="set" data="cc_export_vars=${cc_export_vars},call_center_queue_uuid,sip_h_Alert-Info"/>
+                <action application="set" data="hangup_after_bridge=true"/>
+                <action application="sleep" data="1000"/>
+                <action application="playback" data="ascii/100.wav"/>
+                <action application="set" data="cc_exit_keys=211"/>
+                <action application="callcenter" data="147147@192.168.1.115"/>
+                <action application="" data=""/>
+        </condition>
+</extension>
+<extension name="group-intercept" continue="false" uuid="5571f9e3-ce12-41c7-97b3-9e60a2e9221c">
+        <condition field="destination_number" expression="^\*8$"/>
+        <condition field="${sip_h_X-intercept_uuid}" expression="^(.+)$" break="on-true">
+                <action application="intercept" data="$1"/>
+        </condition>
+        <condition field="" expression="">
+                <action application="answer" data=""/>
+                <action application="lua" data="intercept_group.lua inbound"/>
+        </condition>
+</extension>
+<extension name="page-extension" continue="false" uuid="dc5e58e0-24b8-4c30-bf00-0190274f1442">
+        <condition field="destination_number" expression="^\*8(\d{2,7})$">
+                <action application="set" data="destinations=$1"/>
+                <action application="set" data="pin_number=78683143"/>
+                <action application="set" data="mute=true"/>
+                <action application="set" data="moderator=false"/>
+                <action application="lua" data="page.lua"/>
+        </condition>
+</extension>
+<extension name="eavesdrop" continue="false" uuid="dd814fc6-fe6b-474b-997b-8349d0c5e675">
+        <condition field="destination_number" expression="^\*33(\d{2,7})$">
+                <action application="answer" data=""/>
+                <action application="set" data="pin_number=91574815"/>
+                <action application="lua" data="eavesdrop.lua $1"/>
+        </condition>
+</extension>
+<extension name="call_privacy" continue="false" uuid="55633714-7e97-406f-9436-826d111c6f5d">
+        <condition field="destination_number" expression="^\*67(\d+)$">
+                <action application="privacy" data="full"/>
+                <action application="set" data="sip_h_Privacy=id"/>
+                <action application="set" data="privacy=yes"/>
+                <action application="transfer" data="$1 XML ${context}"/>
+        </condition>
+</extension>
+<extension name="call_return" continue="false" uuid="7bba8450-da5b-4d3a-b850-fa04388941d5">
+        <condition field="destination_number" expression="^\*69$">
+                <action application="transfer" data="${hash(select/${domain_name}-call_return/${caller_id_number})}"/>
+        </condition>
+</extension>
+<extension name="intercept-ext-polycom" continue="false" uuid="18425cf8-0b59-4f64-a8cb-33543d97346b">
+        <condition field="destination_number" expression="^\*97(\d+)$">
+                <action application="answer" data=""/>
+                <action application="lua" data="intercept.lua $1"/>
+        </condition>
+</extension>
+<extension name="intercept-ext" continue="false" uuid="ae7f5637-3f79-4046-8c18-0e400a8f6543">
+        <condition field="destination_number" expression="^\*\*(\d+)$" break="on-true">
+                <action application="answer" data=""/>
+                <action application="lua" data="intercept.lua $1"/>
+        </condition>
+        <condition field="destination_number" expression="^\*\*$"/>
+        <condition field="${sip_h_X-intercept_uuid}" expression="^(.+)$" break="on-true">
+                <action application="intercept" data="$1"/>
+        </condition>
+</extension>
+<extension name="number_queue" continue="" uuid="6a8ff0af-c973-4a88-8a0d-2bf8997c8998">
+        <condition field="destination_number" expression="^\*800(.*)$">
+                <action application="set" data="fifo_music=${hold_music}"/>
+                <action application="set" data="extension_queue=queue_$1@${domain_name}"/>
+                <action application="set" data="fifo_simo=1"/>
+                <action application="set" data="fifo_timeout=30"/>
+                <action application="set" data="fifo_lag=10"/>
+                <action application="set" data="fifo_destroy_after_use=true"/>
+                <action application="set" data="fifo_extension_member=$1@${domain_name}"/>
+                <action application="lua" data="extension_queue.lua"/>
+        </condition>
+</extension>
+<extension name="dx" continue="false" uuid="59d5fb22-6bf0-407d-a558-aa9f91b2c618">
+        <condition field="destination_number" expression="^dx$">
+                <action application="answer" data=""/>
+                <action application="read" data="2 6 'tone_stream://%(10000,0,350,440)' digits 5000 #"/>
+                <action application="transfer" data="-bleg ${digits}"/>
+        </condition>
+</extension>
+<extension name="extension-to-voicemail" continue="false" uuid="9990da48-5bd3-4ebf-8c8f-d42576eb19aa">
+        <condition field="${user_exists}" expression="^true$"/>
+        <condition field="username" expression="^${caller_id_number}$"/>
+        <condition field="destination_number" expression="^${caller_id_number}$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="set" data="record_append=false"/>
+                <action application="set" data="voicemail_action=check"/>
+                <action application="set" data="voicemail_id=${caller_id_number}"/>
+                <action application="set" data="voicemail_profile=default"/>
+          <!--      <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+</extension>
+<extension name="att_xfer" continue="false" uuid="a8c52123-f9b1-4687-abc4-8e64c9824397">
+        <condition field="destination_number" expression="^att_xfer$">
+                <action application="read" data="2 6 'tone_stream://%(10000,0,350,440)' digits 30000 #"/>
+                <action application="set" data="origination_cancel_key=#"/>
+                <action application="att_xfer" data="user/${digits}@${domain_name}"/>
+        </condition>
+</extension>
+<extension name="send_to_voicemail" continue="false" uuid="309bdd94-2636-4d5a-ab22-46871c6ffefb">
+        <condition field="destination_number" expression="^\*99(\d{2,10})$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="set" data="voicemail_action=save"/>
+                <action application="set" data="voicemail_id=$1"/>
+                <action application="set" data="voicemail_profile=default"/>
+                <action application="set" data="send_to_voicemail=true"/>
+              <!--  <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+</extension>
+<extension name="xfer_vm" continue="false" uuid="2c52c64a-f309-4936-9f30-a0da80fa4d55">
+        <condition field="destination_number" expression="^xfer_vm$">
+                <action application="read" data="2 6 'tone_stream://%(10000,0,350,440)' digits 30000 #"/>
+                <action application="set" data="origination_cancel_key=#"/>
+                <action application="set" data="domain_name=${transfer_context}"/>
+                <action application="export" data="domain_name=${transfer_context}"/>
+                <action application="transfer" data="-bleg *99${digits} XML ${transfer_context}"/>
+        </condition>
+</extension>
+<extension name="vmain" continue="false" uuid="f3c37091-9a99-4873-a164-cc1ade43df7c">
+        <condition field="destination_number" expression="^vmain$|^\*4000$|^\*98$" break="never">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="set" data="record_append=false"/>
+                <action application="set" data="voicemail_action=check"/>
+                <action application="set" data="voicemail_profile=default"/>
+                <action application="set" data="voicemail_authorized=false"/>
+             <!--   <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+        <condition field="destination_number" expression="^(vmain$|^\*4000$|^\*98|voicemail\+)(\d{2,12})$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="set" data="record_append=false"/>
+                <action application="set" data="voicemail_action=check"/>
+                <action application="set" data="voicemail_id=$2"/>
+                <action application="set" data="voicemail_profile=default"/>
+                <action application="set" data="voicemail_authorized=false"/>
+            <!--    <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+</extension>
+<extension name="vmain_user" continue="false" uuid="b6b57a1d-6e5a-44fd-843c-53672aa58651">
+        <condition field="destination_number" expression="^\*97$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="set" data="record_append=false"/>
+                <action application="set" data="voicemail_action=check"/>
+                <action application="set" data="voicemail_id=${user_name}"/>
+                <action application="set" data="voicemail_profile=default"/>
+              <!--  <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+</extension>
+<extension name="is_transfer" continue="false" uuid="0d8cb1d3-90c5-4b41-9ae2-8d5c430d7b10">
+        <condition field="destination_number" expression="^is_transfer$"/>
+        <condition field="${digits}" expression="^(\d+)$">
+                <action application="transfer" data="-aleg ${digits} XML ${context}"/>
+                <anti-action application="eval" data="cancel transfer"/>
+        </condition>
+</extension>
+<extension name="delay_echo" continue="false" uuid="d9afacf7-aac6-4300-b04c-3ee0716d754a">
+        <condition field="destination_number" expression="^\*9195$">
+                <action application="answer" data=""/>
+                <action application="delay_echo" data="5000"/>
+        </condition>
+</extension>
+<extension name="cf" continue="false" uuid="69ba797e-5b76-4fab-9047-0094480c91f9">
+        <condition field="destination_number" expression="^cf$">
+                <action application="answer" data=""/>
+                <action application="transfer" data="-both 30${dialed_extension:2} XML ${context}"/>
+        </condition>
+</extension>
+<extension name="echo" continue="false" uuid="a8a55bf7-ad6b-4c9c-9081-897beb2d6eab">
+        <condition field="destination_number" expression="^\*9196$">
+                <action application="answer" data=""/>
+                <action application="echo" data=""/>
+        </condition>
+</extension>
+<extension name="milliwatt" continue="false" uuid="d9584ca3-ab3d-4e8c-8ecd-0d1c65a99a0c">
+        <condition field="destination_number" expression="^\*9197$">
+                <action application="answer" data=""/>
+                <action application="playback" data="{loops=-1}tone_stream://%(251,0,1004)"/>
+        </condition>
+</extension>
+<extension name="is_zrtp_secure" continue="true" uuid="e789ad64-ef06-407c-a5aa-a5b2714d7ed7">
+        <condition field="${zrtp_secure_media_confirmed}" expression="^true$">
+                <action application="sleep" data="1000"/>
+                <action application="playback" data="misc/call_secured.wav"/>
+                <anti-action application="eval" data="not_secure"/>
+        </condition>
+</extension>
+<extension name="tone_stream" continue="false" uuid="f1e70f65-ef69-4c0f-a4aa-21fd2e88d0bb">
+        <condition field="destination_number" expression="^\*9198$">
+                <action application="answer" data=""/>
+                <action application="playback" data="{loops=10}tone_stream://path=${conf_dir}/tetris.ttml"/>
+        </condition>
+</extension>
+<extension name="is_secure" continue="true" uuid="1ff5ff17-b2b9-43c1-a9d5-bb653429e363">
+        <condition field="${sip_via_protocol}" expression="tls"/>
+        <condition field="${sip_secure_media_confirmed}" expression="^true$">
+                <action application="sleep" data="1000"/>
+                <action application="playback" data="misc/call_secured.wav"/>
+                <anti-action application="eval" data="not_secure"/>
+        </condition>
+</extension>
+<extension name="hold_music" continue="false" uuid="0d55c327-f24b-44c6-9bc5-d4093943e163">
+        <condition field="destination_number" expression="^\*9664$"/>
+        <condition field="${sip_has_crypto}" expression="^(AES_CM_128_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_80)$">
+                <action application="answer" data=""/>
+                <action application="execute_extension" data="is_secure XML ${context}"/>
+                <action application="playback" data="${hold_music}"/>
+                <anti-action application="set" data="zrtp_secure_media=true"/>
+                <anti-action application="answer" data=""/>
+                <anti-action application="playback" data="silence_stream://2000"/>
+                <anti-action application="execute_extension" data="is_zrtp_secure XML ${context}"/>
+                <anti-action application="playback" data="${hold_music}"/>
+        </condition>
+</extension>
+<extension name="recordings" continue="false" uuid="c73dce8f-3982-4e18-b89d-6d842bf11d38">
+        <condition field="destination_number" expression="^\*(732)$">
+                <action application="answer" data=""/>
+                <action application="set" data="pin_number=56780009"/>
+                <action application="set" data="recording_id="/>
+                <action application="set" data="recording_prefix=recording"/>
+                <action application="set" data="record_append=false"/>
+                <action application="lua" data="recordings.lua"/>
+        </condition>
+</extension>
+<extension name="directory" continue="false" uuid="3f0540e5-cab7-46a4-b30b-c1be7766d59a">
+        <condition field="destination_number" expression="^\*411$">
+                <action application="lua" data="directory.lua"/>
+        </condition>
+</extension>
+<extension name="wake-up" continue="false" uuid="d5cb931b-7491-49ad-a646-99f56245d331">
+        <condition field="destination_number" expression="^\*(925)$">
+                <action application="answer" data=""/>
+                <action application="set" data="time_zone_offset=-7"/>
+                <action application="lua" data="wakeup.lua"/>
+        </condition>
+</extension>
+<extension name="valet_park" continue="false" uuid="42860dc2-a911-4bf0-b2d7-d692efef33ca">
+        <condition field="destination_number" expression="^(park)?\+?\*(59[0-9][0-9])$" break="never"/>
+        <condition field="${sip_h_Referred-By}" expression="sip:(.*)@.*" break="never">
+                <action application="set" data="referred_by_user=$1" inline="true"/>
+        </condition>
+        <condition field="destination_number" expression="^(park)?\+?\*(59[0-9][0-9])$" break="never">
+                <action application="set" data="park_in_use=false" inline="true"/>
+                <action application="set" data="park_lot=$2" inline="true"/>
+                <action application="info" data=""/>
+        </condition>
+        <condition field="destination_number" expression="^(park)?\+?\*(59[0-9][0-9])$"/>
+        <condition field="${referred_by_user}" expression="^.+$" break="never">
+                <action application="set" data="valet_info_park=${valet_info park@${domain_name}}|\*${park_lot}" inline="true"/>
+                <action application="set" data="park_in_use=${regex ${valet_info park@${domain_name}}|\*${park_lot}}" inline="true"/>
+        </condition>
+        <condition field="${park_in_use}" expression="true" break="never">
+                <action application="transfer" data="${referred_by_user} XML ${context}"/>
+                <anti-action application="set" data="effective_caller_id_name=${cond ${regex ${direction} | inbound} == true ? 'park#${caller_id_name}' : 'park#${callee_id_name}'}" inline="true"/>
+                <anti-action application="set" data="valet_parking_timeout=900"/>
+                <anti-action application="set" data="valet_hold_music=${hold_music}"/>
+                <anti-action application="set" data="valet_parking_orbit_exten=${cond ${regex ${referred_by_user} | ^$} == true ? ${sip_from_user} : ${referred_by_user}}"/>
+                <anti-action application="answer" data=""/>
+                <anti-action application="valet_park" data="park@${domain_name} *${park_lot}"/>
+        </condition>
+</extension>
+<extension name="operator-forward" continue="false" uuid="503bd7a7-5fe7-4de0-94e7-3057d535ef6e">
+        <condition field="destination_number" expression="^\*000$">
+                <action application="set" data="dial_string=loopback/operator/192.168.1.115/XML"/>
+                <action application="set" data="direction=both"/>
+                <action application="set" data="extension=true"/>
+                <action application="lua" data="dial_string.lua"/>
+        </condition>
+</extension>
+<extension name="do-not-disturb" continue="false" uuid="721a3518-0cb8-444c-9bdf-6d576be0e1c7">
+        <condition field="destination_number" expression="^\*77$" break="on-true">
+                <action application="set" data="enabled=toggle"/>
+                <action application="lua" data="do_not_disturb.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^\*78$|\*363$" break="on-true">
+                <action application="set" data="enabled=true"/>
+                <action application="lua" data="do_not_disturb.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^\*79$" break="on-true">
+                <action application="set" data="enabled=false"/>
+                <action application="lua" data="do_not_disturb.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^dnd\+${caller_id_number}$" break="on-true">
+                <action application="set" data="enabled=toggle"/>
+                <action application="lua" data="do_not_disturb.lua"/>
+        </condition>
+</extension>
+<extension name="call_screen" continue="true" uuid="d1c67af4-95d6-499e-9f6d-b17bd740405b">
+        <condition field="${call_screen_enabled}" expression="^true$"/>
+        <condition field="${call_direction}" expression="^inbound$">
+                <action application="set" data="call_screen_file=/tmp/${domain_name}-${caller_id_number}.${record_ext}" inline="true"/>
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="phrase" data="voicemail_record_name"/>
+                <action application="playback" data="tone_stream://%(500, 0, 640)"/>
+                <action application="set" data="playback_terminators=#*0123456789"/>
+                <action application="record" data="${call_screen_file} 7 200 2"/>
+                <action application="set" data="group_confirm_key=1"/>
+                <action application="set" data="fail_on_single_reject=true"/>
+                <action application="set" data="group_confirm_file=phrase:screen_confirm:${call_screen_file}"/>
+        </condition>
+</extension>
+<extension name="ring-group-forward" continue="false" uuid="4e77e3d3-96fe-4461-bbbc-a1073f131658">
+        <condition field="destination_number" expression="^\*75$" break="on-true">
+                <action application="set" data="pin_number=48975970"/>
+                <action application="set" data="enabled=toggle"/>
+                <action application="set" data="ring_group_number="/>
+                <action application="set" data="forward_destination="/>
+                <action application="set" data="forward_reset=true"/>
+                <action application="lua" data="app/ring_groups/resources/scripts/call_forward.lua"/>
+        </condition>
+</extension>
+<extension name="call-forward" continue="false" uuid="f2dc118c-36bc-48a1-ab3d-cce1f85be24c">
+        <condition field="destination_number" expression="^\*72(\d{2,20})$" break="on-true">
+                <action application="set" data="request_id=false"/>
+                <action application="set" data="enabled=true"/>
+                <action application="lua" data="call_forward.lua $1"/>
+        </condition>
+        <condition field="destination_number" expression="^\*72$" break="on-true">
+                <action application="set" data="request_id=false"/>
+                <action application="set" data="enabled=true"/>
+                <action application="lua" data="call_forward.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^\*73$" break="on-true">
+                <action application="set" data="request_id=false"/>
+                <action application="set" data="enabled=false"/>
+                <action application="lua" data="call_forward.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^\*74$" break="on-true">
+                <action application="set" data="request_id=false"/>
+                <action application="set" data="enabled=toggle"/>
+                <action application="lua" data="call_forward.lua"/>
+        </condition>
+        <condition field="destination_number" expression="^forward\+(\Q${caller_id_number}\E)(?:\/(\d+))?$" break="on-true">
+                <action application="set" data="enabled=toggle"/>
+                <action application="set" data="forward_all_destination=$2"/>
+                <action application="lua" data="call_forward.lua"/>
+        </condition>
+</extension>
+<extension name="call-forward-not-registered" continue="" uuid="9e4c57d6-f89d-44aa-b6d1-f184cbd60493">
+        <condition field="${user_exists}" expression="true"/>
+        <condition field="${forward_user_not_registered_enabled}" expression="true"/>
+        <condition field="${sofia_contact */${destination_number}@${domain_name}}" expression="error/user_not_registered">
+                <action application="transfer" data="${forward_user_not_registered_destination} XML ${domain_name}"/>
+        </condition>
+</extension>
+<extension name="follow-me" continue="false" uuid="a76e7958-ee9c-4612-b45c-72b5ec4c2605">
+        <condition field="destination_number" expression="^\*21$">
+                <action application="answer" data=""/>
+                <action application="lua" data="follow_me.lua"/>
+        </condition>
+</extension>
+<extension name="call-forward-all" continue="" uuid="7a13d390-9f4b-43e3-90c2-bb0c7a7a9ec0">
+        <condition field="${forward_all_enabled}" expression="true"/>
+        <condition field="${call_direction}" expression="^local$" break="on-true">
+                <action application="set" data="accountcode=${user_data ${destination_number}@${domain_name} var accountcode}" inline="true"/>
+                <action application="transfer" data="${forward_all_destination} XML ${domain_name}"/>
+        </condition>
+        <condition field="${forward_all_enabled}" expression="true"/>
+        <condition field="${call_direction}" expression="^inbound$" break="on-true">
+                <action application="set" data="outbound_caller_id_name=${caller_id_name}" inline="true"/>
+                <action application="set" data="outbound_caller_id_number=${caller_id_number}" inline="true"/>
+                <action application="transfer" data="${forward_all_destination} XML ${domain_name}"/>
+        </condition>
+</extension>
+<extension name="follow-me-destinations" continue="false" uuid="cd9794e3-a543-4b8f-8ed5-47b7599883e5">
+        <condition field="${user_exists}" expression="^true$"/>
+        <condition field="${follow_me_enabled}" expression="^true$">
+                <action application="unset" data="call_timeout" inline="true"/>
+            <!--    <action application="lua" data="app.lua follow_me"/> -->
+        </condition>
+</extension>
+<extension name="talking clock date and time" continue="" uuid="d8576020-9c35-4c8e-97a6-2422efdf32b5">
+        <condition field="destination_number" expression="^\*9172$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="say" data="${default_language} CURRENT_DATE_TIME pronounced ${strepoch()}"/>
+                <action application="hangup" data=""/>
+        </condition>
+</extension>
+<extension name="talking clock time" continue="" uuid="ebd63b39-a7d7-41c3-88be-0f853c074892">
+        <condition field="destination_number" expression="^\*9170$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="say" data="${default_language} CURRENT_TIME pronounced ${strepoch()}"/>
+                <action application="hangup" data=""/>
+        </condition>
+</extension>
+<extension name="talking clock date" continue="" uuid="11b60b4c-9804-4898-90ef-454d2cfd2eb1">
+        <condition field="destination_number" expression="^\*9171$">
+                <action application="answer" data=""/>
+                <action application="sleep" data="1000"/>
+                <action application="say" data="${default_language} CURRENT_DATE pronounced ${strepoch()}"/>
+                <action application="hangup" data=""/>
+        </condition>
+</extension>
+<extension name="local_extension" continue="true" uuid="07d5cebf-d810-4fa0-94c1-f84bfa5361a9">
+        <condition field="destination_number" expression="${destination_number}">
+                <action application="export" data="dialed_extension=${destination_number}" inline="true"/>
+                <action application="limit" data="hash ${domain_name} ${destination_number} ${limit_max} ${limit_destination}" inline="false"/>
+        </condition>
+        <condition field="" expression="">
+                <action application="set" data="hangup_after_bridge=true"/>
+                <action application="set" data="continue_on_fail=true"/>
+                <action application="set" data="initial_callee_id_name=${user_data(${dialed_extension}@${domain_name} var effective_caller_id_name)}"/>
+                <action application="hash" data="insert/${domain_name}-call_return/${dialed_extension}/${caller_id_number}"/>
+                <action application="hash" data="insert/${domain_name}-last_dial_ext/${dialed_extension}/${uuid}"/>
+                <action application="set" data="called_party_call_group=${user_data(${dialed_extension}@${domain_name} var call_group)}"/>
+                <action application="hash" data="insert/${domain_name}-last_dial/${called_party_call_group}/${uuid}"/>
+          <!--      <action application="set" data="api_hangup_hook=lua app.lua hangup"/> -->
+                <action application="export" data="domain_name=${domain_name}"/>
+                <action application="bridge" data="user/${destination_number}@#TENANT#"/>
+        </condition>
+</extension>
+<extension name="voicemail" continue="false" uuid="5cb18f9a-8729-49f1-9ebf-e554b4ee5d99">
+        <condition field="${user_exists}" expression="true">
+                <action application="set" data="record_append=false" inline="true"/>
+                <action application="set" data="voicemail_action=save" inline="true"/>
+                <action application="set" data="voicemail_id=${destination_number}" inline="true"/>
+                <action application="set" data="voicemail_profile=default" inline="true"/>
+      <!--          <action application="lua" data="app.lua voicemail"/> -->
+        </condition>
+</extension>
+<extension name="not-found" continue="false" uuid="a5cc9658-6988-41ec-989b-5044ecd29236">
+        <condition field="" expression="">
+                <action application="set" data="call_direction=inbound" inline="true"/>
+                <action application="log" data="WARNING [inbound routes] 404 not found ${sip_network_ip}"/>
+        </condition>
+</extension>
+                </context>
+        </section>
+</document>
+
