@@ -99,16 +99,18 @@ export class TenantService {
 
   async create(createTenantDto: CreateTenantDto) {
 
-    if (!createTenantDto.domain && createTenantDto.company_code) {
+    const { username, email, domain, account_code, outgoing_rule_uuid, company_code } = createTenantDto;
+    if(company_code){
+      createTenantDto.company_code = company_code.toLowerCase();
+    }
+     if (!createTenantDto.domain && createTenantDto.company_code) {
       createTenantDto.domain = `${createTenantDto.company_code}.ringingo.com`;
     }
-
-    const { username, email, domain, account_code, outgoing_rule_uuid, company_code } = createTenantDto;
     let where;
     if (account_code != "") {
-      where = [{ username }, { email }, { domain }, { account_code }, { company_code }];
+      where = [{ username }, { email }, { domain }, { account_code }, { company_code: company_code.toLowerCase() }];
     } else {
-      where = [{ username }, { email }, { domain }, { company_code }];
+      where = [{ username }, { email }, { domain }, { company_code: company_code.toLowerCase() }];
     }
 
     createTenantDto.password = this.commonFn.encode(createTenantDto.password);
@@ -176,6 +178,10 @@ export class TenantService {
   */
 
   async update(uuid: string, updateTenantDto: UpdateTenantDto) {
+
+    if (updateTenantDto.domain) {
+      updateTenantDto.domain = updateTenantDto.domain.toLowerCase();
+    }
 
     const { domain, username, email, account_code, outgoing_rule_uuid } = updateTenantDto;
     const getTenantData = await this.tenant.findOne({ uuid }, { domain: 1, email: 1, username: 1, account_code: 1, company_code: 1, _id: 0 }).exec();
@@ -918,7 +924,7 @@ export class TenantService {
           conn.api(`callcenter_config queue list members`, function (res) { processQueueData(res, conn); });
         }
       });
-    } catch (err) {
+    } catch (err: any) {
       Logger.debug(err.message, "Unable to make connection with fs using ESL");
     }
   }
@@ -1102,7 +1108,7 @@ export class TenantService {
         liveCallsCount: liveCallsCount
       }
 
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in realtime report`, error.message);
       return this.commonDbFn.sendResponseWithCount(HttpStatus.NOT_FOUND, [], totalCount);
     }
@@ -1161,7 +1167,7 @@ export class TenantService {
       getInboundBlendedCount = getInboundBlendedCount?.length > 0 ? getInboundBlendedCount : [];
       let finalData = [...dataWithTotalLeads, ...getInboundBlendedCount];
       return finalData;
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in getting leads per campaign`, error.message);
     }
   }
@@ -1272,7 +1278,7 @@ export class TenantService {
       return finalArray;
 
 
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in fetching success & fail count of campaign`, error.message);
     }
   }
@@ -1304,7 +1310,7 @@ export class TenantService {
       } else {
         Logger.warn(`No call queue exist with tenant_uuid : ${tenant_uuid}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block === fetchExistQueuesOfTenant()`, error.message);
     }
   }
@@ -1335,7 +1341,7 @@ export class TenantService {
         Logger.error(`Unable to find call uuid based on caller_id_number : ${caller_id_number} & destination : ${destination}`);
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, []);
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ===> getCallUUIDFromFS()`, error.message);
       return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, []);
     }
@@ -1358,7 +1364,7 @@ export class TenantService {
         inboundCount: inboundCounts,
         outboundCount: outboundCounts
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getCallRingingAgent()`, error.message);
       return {
         inboundCount: inboundCounts,
@@ -1447,7 +1453,7 @@ export class TenantService {
       });
 
       return campaignsArray;
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getTotalLeads()`, error.message);
     }
   }
@@ -1515,7 +1521,7 @@ export class TenantService {
       } else {
         Logger.debug(`No data found ===> getInboundBlendedCount()`);
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getInboundBlendedCount()`, error.message);
     }
   }
@@ -1530,7 +1536,7 @@ export class TenantService {
     try {
       let result = await this.lead_group.findOne({ uuid: leadGroupUUID }, { status: 1, _id: 0 }).exec();
       return result != null ? result.status : "1";
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in fetching lead group status`, error.message);
     }
   }
@@ -1583,7 +1589,7 @@ export class TenantService {
         finalArray.push({ ringingOutbound, waitingOutbound, agentOnCall, active_call_count });
       }
       return finalArray[0];
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getOutboundCount()`, error.message);
     }
   }
@@ -1623,7 +1629,7 @@ export class TenantService {
         finalArray.push({ ringingInbound, waitingInbound, agentOnCall, active_call_count });
       }
       return finalArray[0];
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getInboundCount()`, error.message);
     }
   }
@@ -1680,7 +1686,7 @@ export class TenantService {
       ]).exec();
 
       return this.addCampaignStatisticsDataToAllCampaign(allCampaigns, campaignCallsStatistics, tenant_uuid);
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==>`, error.message);
     }
   }
@@ -1765,7 +1771,7 @@ export class TenantService {
       });
       return finalData;
 
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getLeadInformation()`, error.message);
     }
   }
@@ -1812,7 +1818,7 @@ export class TenantService {
         }
       });
       return finalData;
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Error in catch block ==> getLeadsInQueue()`, error.message);
     }
   }
