@@ -390,4 +390,10 @@ export class TenantController {
     }
   }
 
+  @Post( 'sso/waba/token' )
+  @postDecoraters( "Generate WABA SSO Token", "Generates a short-lived token for SSO to WABA" )
+  async generateWabaSsoToken( @Req() req ) {
+    return this.tenant.generateWabaSsoToken( req.user );
+  }
+
 }
