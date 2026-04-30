@@ -105,7 +105,7 @@ export class OmnichannelsyncService {
         "audio/ogg": "ogg",
       };
 
-      const ext = mimeToExt[finalMime] || "bin";
+      const ext = mimeToExt[finalMime as string] || "bin";
 
       const filename = `${Date.now()}-${Math.random()
         .toString(36)

@@ -12,6 +12,7 @@ import { Request as ExpressRequest } from 'express';
 import { diskStorage, Multer } from 'multer';
 import { randomUUID } from 'crypto';
 import { TenantPersonalizationDto } from '../dto/tenant-personalization.dto';
+import { TenantRabbitmqService } from '../services/tenant-rabbitmq.service';
 
 @Controller( 'tenant' )
 
@@ -25,8 +26,10 @@ export class TenantController {
   @return : Object[tenant]
   */
 
-  constructor( private readonly tenant: TenantService ) { }
-
+ constructor( 
+    private readonly tenant: TenantService,
+    private readonly tenantRabbitmqService: TenantRabbitmqService
+  ) { }
   @Post()
   @postDecoraters( "Tenant created successfully", "Create a new tenant" )
 
@@ -373,6 +376,18 @@ export class TenantController {
     let domain = parts[ 0 ];
     let file = parts[ 1 ];
     res.download( path.join( __dirname, `../../../../upload/${domain}/${file}` ) )
+  }
+
+   @Public()
+  @Get( '/test/rabbitmq' )
+  @getDecoraters( "Test RabbitMQ health successfully", "Test RabbitMQ health status" )
+  async testRabbitMQ() {
+    try {
+      const health = this.tenantRabbitmqService.checkHealth();
+      return { success: health.status === 'up', ...health };
+    } catch (error) {
+      return { success: false, message: 'Failed to check health', error: error.message };
+    }
   }
 
 }

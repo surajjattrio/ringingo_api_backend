@@ -1,13 +1,17 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { ConfigModule} from "@nestjs/config";
+import { HttpModule } from "@nestjs/axios";
 import { MongooseModule } from "@nestjs/mongoose";
 import {
 	sipProfileSchema,
 	SipProfileSchema,
 } from "../sip-profile/schema/sip-profile-schema";
+import { rolesSchema, RolesSchema } from "../roles/schema/roles-schema";
 import { trunkSchema, TrunkSchema } from "../trunk/schema/trunk.schema";
 import { TenantController } from "./controllers/tenant.controller";
 import { TenantSchema, tenantSchema } from "./schema/tenant.schema";
 import { TenantService } from "./services/tenant.service";
+import { TenantRabbitmqService } from "./services/tenant-rabbitmq.service";
 import { FeatureCodeModule } from "../feature-code/feature-code.module";
 import { OutgoingRulesModule } from "../outgoing-rules/outgoing-rules.module";
 import { UserGroupModule } from "../user-group/user-group.module";
@@ -167,7 +171,10 @@ import { UserModule } from "../user/user.module";
 				name: Whatsapp_available_agentSchema.name,
 				schema: whatsapp_available_agentSchema,
 			},
+			{ name: RolesSchema.name, schema: rolesSchema },
 		]),
+		ConfigModule,
+		HttpModule,
 		FeatureCodeModule,
 		OutgoingRulesModule,
 		UserGroupModule,
@@ -176,7 +183,7 @@ import { UserModule } from "../user/user.module";
 		forwardRef(() => DashboardModule),
 	],
 	controllers: [TenantController],
-	providers: [TenantService, SocketService],
-	exports: [MongooseModule],
+	providers: [TenantService, SocketService, TenantRabbitmqService],
+	exports: [MongooseModule, TenantRabbitmqService],
 })
 export class TenantModule { }
