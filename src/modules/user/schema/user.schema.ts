@@ -104,10 +104,21 @@ export class UserSchema {
         value: string;
         label: string;
     }[];
-    // whatsapp_messaging_channel_uuid:String
+    // selcted call quuess
+    @Prop({ default: [] })
+    selected_queues: any[]
 
     @Prop()
     browserToken: String //Platform WEB
+
+    @Prop()
+    vendor_uid: String
+
+    @Prop()
+    mobile_number: String
+
+    @Prop()
+    team_user_uid: String
 }
 
 let userSchema = SchemaFactory.createForClass(UserSchema);

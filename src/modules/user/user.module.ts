@@ -9,6 +9,9 @@ import { managerSchema, ManagerSchema } from '../manager/schema/manager.schema';
 import { licenseSchema, LicenseSchema } from "../master-admin/schema/license.schema";
 import { ExtensionModule } from '../extension/extension.module';
 import { sipProfileSchema, SipProfileSchema } from '../sip-profile/schema/sip-profile-schema';
+import { rolesSchema, RolesSchema } from '../roles/schema/roles-schema';
+import { UserRabbitmqService } from './services/user-rabbitmq.service';
+import { TenantModule } from '../tenant/tenant.module';
 
 
 @Module( {
@@ -26,13 +29,16 @@ import { sipProfileSchema, SipProfileSchema } from '../sip-profile/schema/sip-pr
             { name: TenantSchema.name, schema: tenantSchema },
             { name: ManagerSchema.name, schema: managerSchema },
             { name: LicenseSchema.name, schema: licenseSchema },
+            { name: SipProfileSchema.name, schema: sipProfileSchema },
+            { name: RolesSchema.name, schema: rolesSchema },
             
         ],
      ),
     forwardRef(() => ExtensionModule),
+        forwardRef(() => TenantModule),
     ],
     controllers: [ UserController ],
-    providers: [ UserService ],
-    exports: [ UserService ,MongooseModule ]
-} )
+    providers: [UserService, UserRabbitmqService],
+    exports: [UserService, MongooseModule, UserRabbitmqService]
+})
 export class UserModule { }

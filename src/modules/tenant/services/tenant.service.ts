@@ -45,6 +45,8 @@ import { TenantPersonalizationDto } from '../dto/tenant-personalization.dto';
 import * as fs from "fs";
 import { SocketService } from '../../websockets/websockets.gateway';
 import { UserDocument, UserSchema } from 'src/modules/user/schema/user.schema';
+import { TenantRabbitmqService } from './tenant-rabbitmq.service';
+import { RolesDocument, RolesSchema } from 'src/modules/roles/schema/roles-schema';
 @Injectable()
 export class TenantService {
 
@@ -88,6 +90,8 @@ export class TenantService {
     @InjectModel(PbxLeadStatusSchema.name) private readonly pbx_lead_status: Model<PbxLeadStatusDocument>,
     @InjectModel(TenantPersonalizationSchema.name) private readonly tenant_personalization: Model<TenantPersonalizationDocument>,
     private readonly jwt: JWTService,
+    private readonly tenantRabbitmqService: TenantRabbitmqService,
+    @InjectModel(RolesSchema.name) private readonly roles: Model<RolesDocument>,
 
   ) { }
 
@@ -137,6 +141,13 @@ export class TenantService {
 
     /*Create default Pbx lead status*/
     this.addDefaultPbxLeadStatus(response.message?.uuid);
+
+    // Emit RabbitMQ event
+    if (await this.checkWhatsappPermission(createTenantDto.role_uuid)) {
+      this.tenantRabbitmqService.publish('tenant.created', { ...createTenantDto, uuid: response.message?.uuid });
+    } else {
+      Logger.debug(`Skipping RabbitMQ publish for tenant.created: WhatsApp permission not enabled for role ${createTenantDto.role_uuid}`);
+    }
 
     delete response.message;
     return response;
@@ -235,6 +246,15 @@ export class TenantService {
     } else {
       Logger.debug(`User group updated successfully with : ${outgoing_rule_uuid} \n`, putMethod);
     }
+
+    // Emit RabbitMQ event
+    const tenantRoleUuid = updateTenantDto.role_uuid || getTenantData?.role_uuid;
+    if (await this.checkWhatsappPermission(tenantRoleUuid)) {
+      this.tenantRabbitmqService.publish('tenant.updated', { ...updateTenantDto, uuid });
+    } else {
+      Logger.debug(`Skipping RabbitMQ publish for tenant.updated: WhatsApp permission not enabled for role ${tenantRoleUuid}`);
+    }
+
     return response;
   }
 
@@ -249,8 +269,24 @@ export class TenantService {
       logErrorMsg: `Tenant not exist by uuid : ${uuid} \n`,
       logSuccessMsg: `Tenant deleted successfully by uuid : ${uuid} \n`
     }
+
+    // Fetch tenant data before deletion
+    const getTenantData = await this.tenant.findOne({ uuid }, { role_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+
     this.getDetailsToGenerateSipProfile(uuid);
-    return this.commonDbFn.delete(this.tenant, { uuid }, JSON.stringify(logMessages));
+
+    const response = await this.commonDbFn.delete(this.tenant, { uuid }, JSON.stringify(logMessages));
+
+    // Emit RabbitMQ event
+    if (response.statusCode == 200) {
+      if (await this.checkWhatsappPermission(getTenantData?.role_uuid)) {
+        this.tenantRabbitmqService.publish('tenant.deleted', { uuid, vendor_uid: getTenantData?.vendor_uid });
+      } else {
+        Logger.debug(`Skipping RabbitMQ publish for tenant.deleted: WhatsApp permission not enabled for role ${getTenantData?.role_uuid}`);
+      }
+    }
+
+    return response;
   }
 
   /*
@@ -276,7 +312,22 @@ export class TenantService {
       logErrorMsg: `Tenant not found by uuid : ${uuid} \n`,
       logSuccessMsg: `Tenant status updated successfully by uuid : ${uuid} \n`
     }
-    return this.commonDbFn.update(this.tenant, uuid, body, JSON.stringify(logMessages));
+
+    // Fetch tenant data before update
+    const getTenantData = await this.tenant.findOne({ uuid }, { role_uuid: 1, _id: 0 }).exec();
+
+    const response = await this.commonDbFn.update(this.tenant, uuid, body, JSON.stringify(logMessages));
+
+    // Emit RabbitMQ event
+    if (response.statusCode == 200) {
+      if (await this.checkWhatsappPermission(getTenantData?.role_uuid)) {
+        this.tenantRabbitmqService.publish('tenant.updated', { ...body, uuid });
+      } else {
+        Logger.debug(`Skipping RabbitMQ publish for tenant.updated (patch): WhatsApp permission not enabled for role ${getTenantData?.role_uuid}`);
+      }
+    }
+
+    return response;
   }
 
   /*
@@ -1834,6 +1885,20 @@ export class TenantService {
     let acdVal = acd / success;
     const duration = moment.duration(acdVal, 'seconds');
     return `${duration.minutes().toString().padStart(2, '0')}:${duration.seconds().toString().padStart(2, '0')}`;
+  }
+
+  private async checkWhatsappPermission(role_uuid: any): Promise<boolean> {
+    try {
+      if (!role_uuid) return false;
+      const role: any = await this.roles.findOne({ uuid: role_uuid.toString() }).exec();
+      if (!role) return false;
+
+      const whatsappPermission = role.module_permission?.messaging?.whatsapp;
+      return Number(whatsappPermission) > 0;
+    } catch (error) {
+      Logger.error(`Error checking WhatsApp permission for role ${role_uuid}: ${error.message}`);
+      return false;
+    }
   }
 
   /************************************* CRON JOB *******************************************/
