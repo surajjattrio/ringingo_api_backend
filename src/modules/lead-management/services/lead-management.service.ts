@@ -209,25 +209,25 @@ export class LeadManagementService {
             this.bindLeadWithCdrsAndNotes(cdrs_uuid, response.message.lead_management_uuid);
         }
 
-	// // Call resetLeads after successful lead creation
-        // if (campaign_uuid && lead_group_uuid && tenant_uuid) {
-        //     const resetLeadDto: ResetLeadDto = {
-        //         lead_group_uuid: lead_group_uuid as string,
-        //         campaign_uuid: campaign_uuid as string,
-        //         tenant_uuid: tenant_uuid as string
-        //     };
-        //     try {
-        //         // Use appropriate service based on campaign_flag
-        //         if (campaign_flag === 'blended') {
-        //             await this.blendedCampaignService.resetLeads(resetLeadDto);
-        //         } else {
-        //             await this.outboundCampaignService.resetLeads(resetLeadDto);
-        //         }
-        //         Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
-        //     } catch (error) {
-        //         Logger.error(`Error calling resetLeads: ${error.message}`);
-        //     }
-        // }
+	// Call resetLeads after successful lead creation
+        if (campaign_uuid && lead_group_uuid && tenant_uuid) {
+            const resetLeadDto: ResetLeadDto = {
+                lead_group_uuid: lead_group_uuid as string,
+                campaign_uuid: campaign_uuid as string,
+                tenant_uuid: tenant_uuid as string
+            };
+            try {
+                // Use appropriate service based on campaign_flag
+                if (campaign_flag === 'blended') {
+                    await this.blendedCampaignService.resetLeads(resetLeadDto);
+                } else {
+                    await this.outboundCampaignService.resetLeads(resetLeadDto);
+                }
+                Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
+            } catch (error) {
+                Logger.error(`Error calling resetLeads: ${error.message}`);
+            }
+        }
 
         if (createLeadManagementDto.webhook === true) {
             return { statusCode: response?.statusCode, message: response?.data, lead_uuid: response?.message?.lead_management_uuid }
