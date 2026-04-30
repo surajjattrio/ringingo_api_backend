@@ -9,6 +9,7 @@ import { TenantSchema, TenantDocument } from '../schema/tenant.schema';
 import { CommonFunctions } from 'src/modules/common/common_functions';
 import { CommonDBFunctions } from 'src/modules/common/common_db_functions';
 import { JWTService } from 'src/modules/auth/jwt.service';
+import axios from 'axios';
 import { SipProfileDocument, SipProfileSchema } from 'src/modules/sip-profile/schema/sip-profile-schema';
 import { TrunkDocument, TrunkSchema } from 'src/modules/trunk/schema/trunk.schema';
 import { FeatureCodeDocument, FeatureCodeSchema } from 'src/modules/feature-code/schema/feature-code.schema';
@@ -2046,6 +2047,52 @@ export class TenantService {
       uuid,
       breakData: body,
     };
+  }
+
+  async generateWabaSsoToken(user: any) {
+    let tenant_uuid = user.tenant_uuid;
+    let agent_uuid = user.uuid;
+
+    if (user.role === 'tenant') {
+        tenant_uuid = user.uuid;
+        agent_uuid = user.uuid; 
+    }
+
+    const tenantDoc = await this.tenant.findOne({ uuid: tenant_uuid }, { vendor_token: 1, vendor_uid: 1 });
+    if (!tenantDoc || !tenantDoc.vendor_token || !tenantDoc.vendor_uid) {
+       Logger.error(`Vendor token/UID not configured for tenant: ${tenant_uuid}`);
+       throw new NotFoundException("Vendor token or vendor UID not configured for this tenant.");
+    }
+    
+    const agentDoc = await this.user.findOne({ uuid: agent_uuid }, { team_user_uid: 1 });
+    if (!agentDoc || !agentDoc.team_user_uid) {
+       Logger.error(`Team user UID not configured for agent: ${agent_uuid}`);
+       throw new NotFoundException("Team user UID not configured for this agent.");
+    }
+
+    try {
+        const payload = {
+            vendor_id: tenantDoc.vendor_uid,
+            user_id: agentDoc.team_user_uid
+        };
+
+        const response = await axios.post('https://omni.justtawk.com/api/sso/waba/token', payload, {
+            headers: {
+                'Authorization': `Bearer ${tenantDoc.vendor_token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.data && response.data.success) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, response.data);
+        } else {
+            Logger.error(`Failed to generate token, API response: ${JSON.stringify(response.data)}`);
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, "Failed to generate token");
+        }
+    } catch (error) {
+        Logger.error("SSO Token Generation Error: " + (error.response?.data ? JSON.stringify(error.response.data) : error.message));
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, "Error generating SSO token from vendor");
+    }
   }
 
 }
