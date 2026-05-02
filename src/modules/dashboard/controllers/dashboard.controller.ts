@@ -177,6 +177,21 @@ export class DashboardController {
         return this.dashboard.getCallOverviewDataForTenant(tenantCallOverviewDto, true);
     }
 
+    @Post("tenant/dashboard-data")
+    @postDecoraters("Get tenant dashboard data", "Get tenant dashboard data")
+
+    /*
+    @Usage               : To get tenant dashboard data
+    @Method              : POST
+    @Param tenant_uuid   : string
+    @Param filter        : string (daily, weekly, monthly)
+    @return success / error object
+    */
+
+    getTenantDashboardData(@Body() queryParams) {
+        return this.dashboard.getTenantDashboardData(queryParams);
+    }
+
     @Get("/tenant/filter/:feature")
     @getDecoraters("Retrieved details by usage/call", "List details by usage/call")
 

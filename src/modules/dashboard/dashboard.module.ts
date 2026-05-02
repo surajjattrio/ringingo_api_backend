@@ -13,9 +13,27 @@ import { OutboundCampaignModule } from '../campaigns/outbound-campaign/outbound-
 import { BlendedCampaignModule } from '../campaigns/blended-campaign/blended-campaign.module';
 import { ManagerModule } from '../manager/manager.module';
 import { TrunkModule } from '../trunk/trunk.module';
+import { AgentLoginLogoutSchema, agentLoginLogoutSchema } from '../call-center/schema/agent-login-logout.schema';
+import { IdleStateAgentSchema, idleStateAgentSchema } from '../call-center/schema/idle-state-agent.schema';
 
 @Module({
-    imports: [ExtensionModule, UserModule, forwardRef(() => TenantModule), MongooseModule.forFeature([{ name: CdrsSummarySchema.name, schema: cdrsSummarySchema }]), CdrsModule, DidModule, InboundCampaignModule, OutboundCampaignModule, BlendedCampaignModule, ManagerModule, TrunkModule],
+    imports: [
+        ExtensionModule, 
+        UserModule, 
+        forwardRef(() => TenantModule), 
+        MongooseModule.forFeature([
+            { name: CdrsSummarySchema.name, schema: cdrsSummarySchema },
+            { name: AgentLoginLogoutSchema.name, schema: agentLoginLogoutSchema },
+            { name: IdleStateAgentSchema.name, schema: idleStateAgentSchema }
+        ]), 
+        CdrsModule, 
+        DidModule, 
+        InboundCampaignModule, 
+        OutboundCampaignModule, 
+        BlendedCampaignModule, 
+        ManagerModule, 
+        TrunkModule
+    ],
     controllers: [DashboardController],
     providers: [DashboardService],
     exports: [DashboardService]
