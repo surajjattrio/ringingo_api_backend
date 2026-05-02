@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
+import * as moment from "moment-timezone";
 import { Model, PipelineStage } from "mongoose";
 import { CommonDBFunctions } from "src/modules/common/common_db_functions";
 import { CommonFunctions } from "src/modules/common/common_functions";
@@ -24,6 +25,8 @@ import { TrunkDocument, TrunkSchema } from "src/modules/trunk/schema/trunk.schem
 import { LeadManagementDocument, LeadManagementSchema } from "src/modules/lead-management/schema/lead-management.schema";
 import { LeadGroupDocument, LeadGroupSchema } from "src/modules/lead-group/schema/lead-group.schema";
 import { CallQueueDocument, CallQueueSchema } from "src/modules/call-queue/schema/call-queue.schema";
+import { AgentLoginLogoutDocument, AgentLoginLogoutSchema } from "src/modules/call-center/schema/agent-login-logout.schema";
+import { IdleStateAgentDocument, IdleStateAgentSchema } from "src/modules/call-center/schema/idle-state-agent.schema";
 
 //https://medium.com/voodoo-engineering/node-js-and-cpu-profiling-on-production-in-real-time-without-downtime-d6e62af173e2
 
@@ -48,6 +51,8 @@ export class DashboardService {
         @InjectModel(LeadManagementSchema.name) private readonly leadsModel: Model<LeadManagementDocument>,
         @InjectModel(LeadGroupSchema.name) private readonly leadGroupModel: Model<LeadGroupDocument>,
         @InjectModel(CallQueueSchema.name) private readonly callQueueModel: Model<CallQueueDocument>,
+        @InjectModel(AgentLoginLogoutSchema.name) private readonly agent_login_logout_report: Model<AgentLoginLogoutDocument>,
+        @InjectModel(IdleStateAgentSchema.name) private readonly idle_state_agent: Model<IdleStateAgentDocument>,
     ) { }
 
     /*
@@ -1172,6 +1177,366 @@ export class DashboardService {
         ]);
 
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, result);
+    }
+    
+    async getTenantDashboardData(queryParams: any) {
+        const { tenant_uuid, filter = "daily", timezone = "Asia/Kolkata" } = queryParams;
+        
+        let startDate = moment.tz(timezone);
+        if (filter === "daily") {
+            startDate = moment.tz(timezone).startOf("day");
+        } else if (filter === "weekly") {
+            startDate = moment.tz(timezone).subtract(7, "days").startOf("day");
+        } else if (filter === "monthly") {
+            startDate = moment.tz(timezone).subtract(30, "days").startOf("day");
+        }
+        const endDate = moment.tz(timezone);
+
+        const matchRules = {
+            tenant_uuid,
+            createdAt: { $gte: startDate.toDate(), $lte: endDate.toDate() }
+        };
+
+        const result = await this.cdrs.aggregate([
+            { $match: matchRules },
+            {
+                $facet: {
+                    kpis: [
+                        {
+                            $group: {
+                                _id: null,
+                                waiting_time: { $sum: { $toDouble: "$waiting_time" } },
+                                hold_time: { $sum: { $toDouble: "$hold_time" } },
+                                ringing_time: { $sum: { $toDouble: "$ringing_time" } },
+                                billsecond: { $sum: { $toDouble: "$billsecond" } },
+                                wrap_up_time: { $sum: { $toDouble: "$wrap_up_time" } }
+                            }
+                        }
+                    ],
+                    inbound: [
+                        { $match: { direction: "inbound" } },
+                        {
+                            $group: {
+                                _id: null,
+                                total_calls: { $sum: 1 },
+                                connected_calls: { 
+                                    $sum: { 
+                                        $cond: [
+                                            { 
+                                                $and: [
+                                                    { $gt: [{ $toDouble: "$billsecond" }, 0] },
+                                                    { $eq: ["$call_state", "normal"] }
+                                                ] 
+                                            }, 
+                                            1, 0
+                                        ] 
+                                    } 
+                                },
+                                missed_calls: { 
+                                    $sum: { 
+                                        $cond: [
+                                            { 
+                                                $and: [
+                                                    { $eq: ["$call_state", "missed"] },
+                                                    { $not: { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT"]] } }
+                                                ] 
+                                            }, 
+                                            1, 0
+                                        ] 
+                                    } 
+                                },
+                                dropped_calls: { 
+                                    $sum: { 
+                                        $cond: [
+                                            { 
+                                                $or: [
+                                                    { $eq: ["$call_state", "drop"] },
+                                                    { 
+                                                        $and: [
+                                                            { $eq: ["$call_state", "missed"] },
+                                                            { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT"]] }
+                                                        ] 
+                                                    }
+                                                ] 
+                                            }, 
+                                            1, 0
+                                        ] 
+                                    } 
+                                }
+                            }
+                        }
+                    ],
+                    outbound: [
+                        { $match: { direction: "outbound" } },
+                        {
+                            $group: {
+                                _id: null,
+                                total_calls: { $sum: 1 },
+                                connected_calls: { $sum: { $cond: [{ $gt: [{ $toDouble: "$billsecond" }, 0] }, 1, 0] } },
+                                missed_calls: { $sum: { $cond: [{ $eq: ["$call_state", "missed"] }, 1, 0] } },
+                                dropped_calls: { $sum: { $cond: [{ $eq: ["$call_state", "drop"] }, 1, 0] } }
+                            }
+                        }
+                    ],
+                    traffic_trends: [
+                        {
+                            $group: {
+                                _id: {
+                                    $dateToString: { 
+                                        format: filter === "daily" ? "%H:00" : "%Y-%m-%d", 
+                                        date: "$createdAt",
+                                        timezone: timezone
+                                    }
+                                },
+                                inbound: { $sum: { $cond: [{ $eq: ["$direction", "inbound"] }, 1, 0] } },
+                                outbound: { $sum: { $cond: [{ $eq: ["$direction", "outbound"] }, 1, 0] } }
+                            }
+                        },
+                        { $sort: { _id: 1 } }
+                    ],
+                    disposition_trends: [
+                        {
+                            $group: {
+                                _id: "$disposition",
+                                count: { $sum: 1 }
+                            }
+                        },
+                        { $sort: { count: -1 } },
+                        { $limit: 10 }
+                    ],
+                    call_distribution: [
+                        {
+                            $group: {
+                                _id: null,
+                                ivr: { $sum: { $cond: [{ $ne: ["$ivr_group", ""] }, 1, 0] } },
+                                ring_group: { $sum: { $cond: [{ $ne: ["$ring_group", ""] }, 1, 0] } },
+                                queue: { $sum: { $cond: [{ $ne: ["$queue_group", ""] }, 1, 0] } }
+                            }
+                        }
+                    ]
+                }
+            }
+        ]);
+
+        const data = result[0];
+        const kpiBase = data.kpis[0] || {};
+        const inb = data.inbound[0] || { total_calls: 0, connected_calls: 0, missed_calls: 0, dropped_calls: 0 };
+        const outb = data.outbound[0] || { total_calls: 0, connected_calls: 0, missed_calls: 0, dropped_calls: 0 };
+        const trafficData = data.traffic_trends || [];
+        const dispTrends = data.disposition_trends || [];
+
+        // 1. Process Traffic Trends (Fill all gaps for a consistent timeline)
+        const traffic: { labels: string[], inbound: number[], outbound: number[] } = { labels: [], inbound: [], outbound: [] };
+        let cursor = startDate.clone();
+        
+        while (cursor.isSameOrBefore(endDate)) {
+            const label = cursor.format(filter === "daily" ? "HH:00" : "YYYY-MM-DD");
+            traffic.labels.push(label);
+            
+            const match = trafficData.find((t: any) => t._id === label);
+            traffic.inbound.push(match ? match.inbound : 0);
+            traffic.outbound.push(match ? match.outbound : 0);
+            
+            cursor.add(1, filter === "daily" ? "hour" : "day");
+        }
+
+        // 2. Process Disposition Trends
+        const totalCalls = (inb.total_calls || 0) + (outb.total_calls || 0);
+        const disposition_trends = dispTrends.map((d: any) => ({
+            label: d._id || "Unknown",
+            value: d.count,
+            percent: totalCalls > 0 ? Math.round((d.count / totalCalls) * 100) : 0
+        }));
+
+        // 3. Process Call Distribution [Total, Connected, Missed, Dropped]
+        const call_distribution = [
+            (inb.total_calls || 0) + (outb.total_calls || 0),
+            (inb.connected_calls || 0) + (outb.connected_calls || 0),
+            (inb.missed_calls || 0) + (outb.missed_calls || 0),
+            (inb.dropped_calls || 0) + (outb.dropped_calls || 0)
+        ];
+
+        // AHT Calculation
+        const talkSec = (kpiBase.billsecond || 0) + (kpiBase.hold_time || 0);
+        const ahtSec = talkSec + (kpiBase.wrap_up_time || 0);
+
+        const stateMetrics = await this.getAgentStateMetrics(tenant_uuid, startDate, endDate, talkSec);
+
+        const formattedResponse = {
+            kpis: {
+                wait_time: this.formatSeconds(kpiBase.waiting_time || 0),
+                hold_time: this.formatSeconds(kpiBase.hold_time || 0),
+                ring_time: this.formatSeconds(kpiBase.ringing_time || 0),
+                aht: this.formatSeconds(ahtSec),
+                wrap_up: this.formatSeconds(stateMetrics.acw || kpiBase.wrap_up_time || 0),
+                idle_time: this.formatSeconds(stateMetrics.idle),
+                pause_time: this.formatSeconds(stateMetrics.pause),
+                break_time: this.formatSeconds(stateMetrics.break)
+            },
+            inbound: inb,
+            outbound: outb,
+            traffic_trends: traffic,
+            disposition_trends: disposition_trends,
+            call_distribution: call_distribution,
+            filter: filter
+        };
+
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, formattedResponse);
+    }
+
+    private formatSeconds(seconds: number): string {
+        const duration = moment.duration(seconds, "seconds");
+        const h = Math.floor(duration.asHours());
+        const m = duration.minutes();
+        const s = duration.seconds();
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    private async getAgentStateMetrics(tenant_uuid: string, startDate: any, endDate: any, totalCdrTalkSec: number): Promise<{ idle: number, pause: number, break: number, acw: number }> {
+        try {
+            const start = startDate.toDate();
+            const end = endDate.toDate();
+
+            // 1. Get ALL agents for this tenant (not just active ones)
+            const agents = await this.user.find({ tenant_uuid }).select("uuid").lean();
+            const agentUuids = agents.map(a => a.uuid);
+            if (agentUuids.length === 0) return { idle: 0, pause: 0, break: 0, acw: 0 };
+
+            // 2. Fetch login/logout and state records
+            const [loginResults, stateResults] = await Promise.all([
+                this.agent_login_logout_report.find({
+                    tenant_uuid,
+                    agent_uuid: { $in: agentUuids },
+                    createdAt: { $gte: start, $lte: end }
+                }).sort({ createdAt: 1 }).lean().exec(),
+                this.idle_state_agent.find({
+                    tenant_uuid,
+                    agent_uuid: { $in: agentUuids },
+                    createdAt: { $gte: start, $lte: end }
+                }).sort({ createdAt: 1 }).lean().exec()
+            ]);
+
+            let totalBreakMs = 0, totalIdleSec = 0, totalPauseSec = 0, totalAcwSec = 0, totalStateTalkSec = 0;
+            
+            const loginByAgent = new Map<string, any[]>();
+            loginResults.forEach((r: any) => {
+                const auuid = String(r.agent_uuid);
+                if (!loginByAgent.has(auuid)) loginByAgent.set(auuid, []);
+                loginByAgent.get(auuid).push(r);
+            });
+
+            const stateByAgent = new Map<string, any[]>();
+            stateResults.forEach((r: any) => {
+                const auuid = String(r.agent_uuid);
+                if (!stateByAgent.has(auuid)) stateByAgent.set(auuid, []);
+                stateByAgent.get(auuid).push(r);
+            });
+
+            for (const agentUuid of agentUuids) {
+                const auuid = String(agentUuid);
+                const agentLogins = loginByAgent.get(auuid) || [];
+                totalBreakMs += this.calculateLocalBreakTime(agentLogins, end);
+
+                const agentStates = stateByAgent.get(auuid) || [];
+                const cleanedStates = this.cleanLocalStateRecords(agentStates);
+                const sessions = this.calculateLocalSessions(agentLogins, end);
+
+                if (sessions.length > 0 && cleanedStates.length > 0) {
+                    const durations = this.calculateLocalStateDurations(sessions, cleanedStates);
+                    totalIdleSec += durations["0"] || 0;
+                    totalPauseSec += durations["4"] || 0;
+                    totalAcwSec += durations["5"] || 0;
+                    totalStateTalkSec += (durations["1"] || 0) + (durations["2"] || 0);
+                }
+            }
+
+            // 3. Talk-Time Calibration (Matching Report Logic)
+            // If CDR Talk > State Talk, subtract difference from Idle.
+            const talkDiff = totalCdrTalkSec - totalStateTalkSec;
+            if (talkDiff > 0) {
+                totalIdleSec = Math.max(0, totalIdleSec - talkDiff);
+            }
+
+            return { idle: totalIdleSec, pause: totalPauseSec, break: totalBreakMs / 1000, acw: totalAcwSec };
+        } catch (error) {
+            console.error("Error in getAgentStateMetrics:", error);
+            return { idle: 0, pause: 0, break: 0, acw: 0 };
+        }
+    }
+
+    private calculateLocalSessions(alldata: any[], dayEnd: Date) {
+        let sessions = [], sessionStart = null, inSession = false;
+        for (let i = 0; i < alldata.length; i++) {
+            let entry = alldata[i];
+            if (entry.login_status == 0 && (entry.breakcode_uuid == "" || entry.breakcode_uuid == undefined)) {
+                if (!inSession) { sessionStart = entry.createdAt; inSession = true; }
+            } else if (entry.login_status == 2) {
+                if (inSession && sessionStart) {
+                    let duration = new Date(entry.createdAt).getTime() - new Date(sessionStart).getTime();
+                    if (duration > 0) sessions.push({ start: sessionStart, end: entry.createdAt, duration });
+                    sessionStart = null; inSession = false;
+                }
+            }
+        }
+        if (inSession && sessionStart) {
+            let duration = dayEnd.getTime() - new Date(sessionStart).getTime();
+            if (duration > 0) sessions.push({ start: sessionStart, end: dayEnd, duration });
+        }
+        return sessions;
+    }
+
+    private calculateLocalBreakTime(alldata: any[], dayEnd: Date) {
+        let totalMs = 0;
+        for (let i = 0; i < alldata.length; i++) {
+            let current = alldata[i], next = alldata[i + 1];
+            if (current.login_status == 1 && current.breakcode_uuid) {
+                let breakEnd = (next && (next.login_status == 0 || next.login_status == 2)) ? next.createdAt : dayEnd;
+                let duration = new Date(breakEnd).getTime() - new Date(current.createdAt).getTime();
+                if (duration > 0) totalMs += duration;
+            }
+        }
+        return totalMs;
+    }
+
+    private cleanLocalStateRecords(records: any[]) {
+        if (!records.length) return [];
+        const sorted = [...records].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        const dedupedRaw = [];
+        for (let i = 0; i < sorted.length; i++) {
+            if (i < sorted.length - 1 && new Date(sorted[i].createdAt).getTime() === new Date(sorted[i + 1].createdAt).getTime()) continue;
+            dedupedRaw.push(sorted[i]);
+        }
+        const cleaned = [];
+        for (const r of dedupedRaw) {
+            if (cleaned.length > 0 && cleaned[cleaned.length - 1].status === r.status) continue;
+            cleaned.push(r);
+        }
+        return cleaned;
+    }
+
+    private calculateLocalStateDurations(sessions: any[], states: any[]) {
+        const durations: Record<string, number> = {};
+        const reversedStates = [...states].reverse();
+        for (const session of sessions) {
+            const sStart = new Date(session.start).getTime(), sEnd = new Date(session.end).getTime();
+            const sessionStates = states.filter(s => {
+                const t = new Date(s.createdAt).getTime();
+                return t >= sStart && t <= sEnd;
+            });
+            let lastMarker = sStart, currentStatus = "0";
+            const stateBefore = reversedStates.find(s => new Date(s.createdAt).getTime() <= sStart);
+            if (stateBefore) currentStatus = String(stateBefore.status);
+            else if (sessionStates.length > 0) currentStatus = String(sessionStates[0].status);
+            for (const state of sessionStates) {
+                const stateTime = new Date(state.createdAt).getTime();
+                const d = (stateTime - lastMarker) / 1000;
+                if (d > 0) durations[currentStatus] = (durations[currentStatus] || 0) + d;
+                currentStatus = String(state.status); lastMarker = stateTime;
+            }
+            const finalDuration = (sEnd - lastMarker) / 1000;
+            if (finalDuration > 0) durations[currentStatus] = (durations[currentStatus] || 0) + finalDuration;
+        }
+        return durations;
     }
 
 }
