@@ -124,6 +124,80 @@ export class UserRabbitmqService implements OnModuleInit {
     };
   }
 
+  /**
+   * SEPARATE FLOW for manual sync to avoid modifying the existing consumer.
+   * This allows the frontend to wait for the result and get specific error messages.
+   */
+  async syncManual(pattern: string, data: any) {
+    const baseUrl = 'https://omni.justtawk.com/api';
+    
+    // 1. Fetch User and Parent Tenant
+    const user = await this.userModel.findOne({ uuid: data.uuid });
+    if (!user && pattern !== 'user.deleted') {
+      throw new Error(`Agent ${data.uuid} not found`);
+    }
+
+    const tenantUuid = user?.tenant_uuid || data.tenant_uuid;
+    if (!tenantUuid) {
+      throw new Error(`No tenant_uuid for agent ${data.uuid}`);
+    }
+
+    const tenant = await this.tenantModel.findOne({ uuid: tenantUuid });
+    if (!tenant || !tenant.vendor_uid || !tenant.vendor_token) {
+      throw new Error(`Tenant not synced or credentials missing for agent ${data.uuid}`);
+    }
+
+    const headers = { 
+        'Authorization': `Bearer ${tenant.vendor_token}`,
+        'Content-Type': 'application/json'
+    };
+
+    if (pattern === 'user.created') {
+      const nameParts = (user.fullname || 'Agent').split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || 'User';
+      const rawPassword = await this.commonFn.decode(user.password as string);
+
+      const payload = {
+        email: user.email,
+        password: rawPassword,
+        username: user.username,
+        first_name: firstName,
+        last_name: lastName,
+        mobile_number: (user as any)?.mobile_number,
+        permissions: ["messaging", "manage_contacts", "assigned_chats_only"]
+      };
+
+      this.logger.log(`[ManualSync] Creating Agent on JustTawk...`, { email: user.email });
+      try {
+          // Always store the parent's vendor_uid in the user record
+          await this.userModel.updateOne({ uuid: user.uuid }, { vendor_uid: tenant.vendor_uid });
+
+          try {
+              const res = await axios.post(`${baseUrl}/${tenant.vendor_uid}/team-users`, payload, { headers });
+              if (res.data?.result !== 'success') {
+                  throw new Error(res.data?.message || 'Unknown reason');
+              }
+              this.logger.log(`[ManualSync] Agent created on JustTawk`);
+          } catch (createErr) {
+              throw createErr;
+          }
+
+          // Fetch the specific team_user_uid from the list (works for both new and existing users)
+          const teamUserUid = await this.fetchTeamUserUid(tenant.vendor_uid as string, tenant.vendor_token as string, user.email as string);
+          if (teamUserUid) {
+              await this.userModel.updateOne({ uuid: user.uuid }, { team_user_uid: teamUserUid });
+              this.logger.log(`[ManualSync] Agent synced, team_user_uid saved`, { teamUserUid });
+          } else {
+              throw new Error('Failed to retrieve team_user_uid from JustTawk after creation/sync attempt');
+          }
+      } catch (err) {
+          const errMsg = err.response?.data?.message || err.message;
+          throw new Error(errMsg);
+      }
+    }
+  }
+
   private async handleMessage(pattern: string, data: any) {
     const baseUrl = 'https://omni.justtawk.com/api';
     

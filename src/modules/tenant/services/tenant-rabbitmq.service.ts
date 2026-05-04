@@ -131,6 +131,77 @@ export class TenantRabbitmqService implements OnModuleInit {
       message: isConnected ? 'RabbitMQ is connected' : 'RabbitMQ is disconnected'
     };
   }
+  /**
+   * SEPARATE FLOW for manual sync.
+   */
+  async syncManual(pattern: string, data: any) {
+    const apiKey = 'ringingo-eyFxs8ldOszbLVb0qL2zcySM';
+    const baseUrl = 'https://omni.justtawk.com/api/third-party';
+    const headers = { 'x-api-key': apiKey, 'Content-Type': 'application/json' };
+
+    try {
+      if (pattern === 'tenant.created') {
+        // 1. Create Vendor
+        const rawPassword = await this.commonFn.decode(data.password);
+        const createPayload = {
+          vendor_title: data.tenant_name,
+          username: data.username,
+          first_name: data.tenant_name.split(' ')[0] || 'Admin',
+          last_name: data.tenant_name.split(' ').slice(1).join(' ') || 'User',
+          mobile_number: data.mobile_number,
+          email: data.email,
+          password: rawPassword,
+          password_confirmation: rawPassword,
+        };
+
+        this.logger.log(`[ManualSync] Creating vendor on JustTawk...`, { email: data.email });
+        try {
+          await axios.post(`${baseUrl}/vendors`, createPayload, { headers });
+        } catch (e) {
+          throw e;
+        }
+
+        // 2. Get API Token
+        let tokenRes;
+        const maxRetries = 5;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            this.logger.log(`[ManualSync] Token fetch attempt ${attempt}/${maxRetries}...`);
+            tokenRes = await axios.post(`${baseUrl}/vendor-api-token`, {
+              email: data.email,
+              password: rawPassword
+            }, { headers });
+
+            if (tokenRes?.data?.result === 'success') break;
+          } catch (e) {            
+            if (attempt < maxRetries) {
+              const waitTime = attempt * 3000;
+              this.logger.warn(`[ManualSync] Vendor still reloading, waiting ${waitTime}ms before retry...`);
+              await new Promise(res => setTimeout(res, waitTime));
+            } else {
+              throw e;
+            }
+          }
+        }
+
+        if (tokenRes?.data?.result === 'success') {
+          const { vendor_uid, token } = tokenRes.data.data;
+          await this.tenantModel.updateOne(
+            { uuid: data.uuid },
+            { vendor_uid: vendor_uid, vendor_token: token }
+          );
+          this.logger.log(`[ManualSync] Vendor synced and token stored`, { vendor_uid });
+          return { success: true, vendor_uid };
+        } else {
+          throw new Error(tokenRes?.data?.message || 'Failed to fetch vendor API token');
+        }
+      }
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || error.message;
+      this.logger.error(`[ManualSync] Error: ${errorMessage}`);
+      throw new Error(errorMessage);
+    }
+  }
 
   private async handleMessage(pattern: string, data: any) {
     const apiKey = 'ringingo-eyFxs8ldOszbLVb0qL2zcySM';
