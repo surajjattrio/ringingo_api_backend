@@ -476,7 +476,7 @@ export class UserService {
             logSuccessMsg: `User deleted successfully by uuid : ${uuid} \n`
         }
 
-        const getUserData = await this.user.findOne({ uuid }, { tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+        const getUserData = await this.user.findOne({ uuid }, { team_user_uid:1, tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
         const response = await this.commonDbFn.delete(this.user, { uuid }, JSON.stringify(logMessages));
 
         if (response?.statusCode == 200) {
@@ -484,7 +484,8 @@ export class UserService {
                 this.userRabbitmqService.publish('user.deleted', { 
                     uuid, 
                     vendor_uid: (getUserData as any)?.vendor_uid,
-                    tenant_uuid: getUserData?.tenant_uuid 
+                    tenant_uuid: getUserData?.tenant_uuid ,
+                    team_user_uid: getUserData?.team_user_uid
                 });
             } else {
                 Logger.debug(`Skipping RabbitMQ publish for user.deleted: WhatsApp permission not enabled for tenant ${getUserData?.tenant_uuid}`);
