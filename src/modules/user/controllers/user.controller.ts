@@ -241,4 +241,10 @@ export class UserController {
         }
     }
 
+    @Post(":uuid/sync-waba")
+    @postDecoraters("User sync initiated successfully", "Initiate manual WABA sync for user")
+    syncWaba(@Param('uuid', new ParseUUIDPipe({ version: '4' })) id: string) {
+        return this.user.syncWaba(id);
+    }
+
 }

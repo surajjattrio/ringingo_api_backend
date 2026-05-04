@@ -396,4 +396,10 @@ export class TenantController {
     return this.tenant.generateWabaSsoToken( req.user );
   }
 
+  @Post(":uuid/sync-waba")
+  @postDecoraters("Tenant sync initiated successfully", "Initiate manual WABA sync for tenant")
+  syncWaba(@Param('uuid', new ParseUUIDPipe({ version: '4' })) id: string) {
+      return this.tenant.syncWaba(id);
+  }
+
 }
