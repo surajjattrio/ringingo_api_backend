@@ -2097,5 +2097,24 @@ export class TenantService {
     }
   }
 
+  async syncWaba(uuid: string) {
+    const tenant = await this.tenant.findOne({ uuid }).exec();
+    if (!tenant) {
+      return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, "Tenant not found");
+    }
+
+    if (await this.checkWhatsappPermission(tenant.role_uuid)) {
+      try {
+          await this.tenantRabbitmqService.syncManual('tenant.created', tenant);
+          return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Tenant synced successfully with external application");
+      } catch (error) {
+          const errorMessage = error.response?.data?.message || error.message || "Unknown error occurred during sync";
+          return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, `Sync failed: ${errorMessage}`);
+      }
+    } else {
+      return this.commonDbFn.sendResponseWithMessage(HttpStatus.FORBIDDEN, "WhatsApp permission not enabled for this tenant");
+    }
+  }
+
 }
 

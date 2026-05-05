@@ -314,12 +314,29 @@ export class UserService {
     */
 
     async findOne(uuid: string) {
-        const user = await this.user.findOne({ uuid }).exec();
+        let user: any = await this.user.findOne({ uuid }).exec();
         if (user == null) {
-            Logger.error(`User not found by uuid : ${uuid} \n`, getMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "User not found" })
+            Logger.error(`User not found by uuid : ${uuid} \n`, getMethod);
+            throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "User not found" });
         }
         Logger.debug(`User success fetched by uuid : ${uuid} \n`);
+
+        // Convert to plain object to add dynamic fields like tenant_role and whatspermissio
+        user = user.toObject();
+
         user.password = await this.commonFn.decode(user.password);
+
+        // Populate Tenant Role and check WhatsApp permission
+        if (user.tenant_uuid) {
+            const tenant = await this.tenant.findOne({ uuid: user.tenant_uuid }, { role_uuid: 1, _id: 0 }).exec();
+            if (tenant?.role_uuid) {
+                const role = await this.rolesModel.findOne({ uuid: tenant.role_uuid }).exec();
+                if (role) {
+                    user.tenant_role = role;
+                }
+            }
+        }
+
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, user);
     }
 
@@ -459,7 +476,7 @@ export class UserService {
             logSuccessMsg: `User deleted successfully by uuid : ${uuid} \n`
         }
 
-        const getUserData = await this.user.findOne({ uuid }, { tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+        const getUserData = await this.user.findOne({ uuid }, { team_user_uid:1, tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
         const response = await this.commonDbFn.delete(this.user, { uuid }, JSON.stringify(logMessages));
 
         if (response?.statusCode == 200) {
@@ -467,7 +484,8 @@ export class UserService {
                 this.userRabbitmqService.publish('user.deleted', { 
                     uuid, 
                     vendor_uid: (getUserData as any)?.vendor_uid,
-                    tenant_uuid: getUserData?.tenant_uuid 
+                    tenant_uuid: getUserData?.tenant_uuid ,
+                    team_user_uid: getUserData?.team_user_uid
                 });
             } else {
                 Logger.debug(`Skipping RabbitMQ publish for user.deleted: WhatsApp permission not enabled for tenant ${getUserData?.tenant_uuid}`);
@@ -580,6 +598,25 @@ export class UserService {
             domain: tenant.domain,
             allextension: filteredExtensions,
         };
+    }
+
+    async syncWaba(uuid: string) {
+        const user = await this.user.findOne({ uuid }).exec();
+        if (!user) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, "User not found");
+        }
+
+        if (await this.checkTenantWhatsappPermission(user.tenant_uuid)) {
+            try {
+                await this.userRabbitmqService.syncManual('user.created', user);
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "User synced successfully with external application");
+            } catch (error) {
+                const errorMessage = error.response?.data?.message || error.message || "Unknown error occurred during sync";
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, `Sync failed: ${errorMessage}`);
+            }
+        } else {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.FORBIDDEN, "WhatsApp permission not enabled for this tenant");
+        }
     }
 
 }
