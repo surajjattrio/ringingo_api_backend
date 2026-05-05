@@ -557,7 +557,9 @@ export class TenantService {
       role: "",
       unallocated_leads: "1",
       force_login: "1",
-      agent_script: "1"
+      agent_script: "1",
+      auto_logout: "1",
+      idle_timeout: "30"
     }
     let result = new this.user_role(obj);
     result = await result.save();

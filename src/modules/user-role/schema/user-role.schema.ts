@@ -77,6 +77,12 @@ export class UserRoleSchema {
 
     @Prop()
     agent_script: String
+
+    @Prop({ default: "1" })
+    auto_logout: String
+
+    @Prop({ default: "30" })
+    idle_timeout: String
 }
 
 let userRoleSchema = SchemaFactory.createForClass( UserRoleSchema );
