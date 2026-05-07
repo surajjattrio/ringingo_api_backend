@@ -127,6 +127,8 @@ export class LeadManagementSchema {
     @Prop()
     product1: string
 
+    @Prop()
+    assigned_agent_uuid: string
 }
 
 let leadManagementSchema = SchemaFactory.createForClass( LeadManagementSchema );

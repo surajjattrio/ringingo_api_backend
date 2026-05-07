@@ -450,25 +450,28 @@ export class AgentCallCenterService {
                 ];
             }
 
+            let result: any = null;
+
             /* ---------------------------------
-             * Atomic pickup (NO race condition)
+             * Priority Lead Assignment
+             * For specific tenant: f20b1a37-6234-4151-9a71-b2f99f1578fd
              * --------------------------------- */
-            const result: any = await this.leads_in_queue
-                .findOneAndUpdate(
-                    query,
-                    {
-                        $set: {
-                            lead_sent: "0",
-                            updatedAt: new Date()
-                        }
-                    },
-                    {
-                        sort: { _id: 1 },
-                        returnDocument: "after"
-                    }
-                )
-                .populate(populateFields)
-                .exec();
+            if (tenant_uuid === "f20b1a37-6234-4151-9a71-b2f99f1578fd" && agent_uuid) {
+                const priorityQuery = { ...query, assigned_agent_uuid: agent_uuid };
+                Logger.debug(`Searching for priority lead for agent ${agent_uuid}`);
+                result = await this.leads_in_queue.findOneAndUpdate(priorityQuery, { $set: { lead_sent: "0", updatedAt: new Date() } }, { sort: { _id: 1 }, returnDocument: "after" }).populate(populateFields).exec();
+
+                if (result) {
+                    Logger.debug(`Priority lead found and assigned: ${result._id}`);
+                }
+            }
+
+            /* ---------------------------------
+             * Normal Lead Assignment (Fallback)
+             * --------------------------------- */
+            if (!result) {
+                result = await this.leads_in_queue.findOneAndUpdate(query, { $set: { lead_sent: "0", updatedAt: new Date() } }, { sort: { _id: 1 }, returnDocument: "after" }).populate(populateFields).exec();
+            }
 
             /* ---------------------------------
              * No lead found
@@ -525,6 +528,7 @@ export class AgentCallCenterService {
                         phone_code: obj?.phone_code || "",
                         phone_number: obj?.phone_number || "",
                         user_uuid: obj?.user_uuid || "",
+                        assigned_agent_uuid: obj?.assigned_agent_uuid || "",
                         tenant_uuid: obj?.tenant_uuid || "",
                         tenant_name: obj?.tenant?.[0]?.tenant_name || "",
                         created_flag: obj?.created_flag || "",
@@ -887,6 +891,18 @@ export class AgentCallCenterService {
             Logger.error(`Lead not found ${lead_management_uuid}`, patchMethod);
         } else {
             Logger.debug(`Lead updated with campaign : ${campaign_uuid} & lead_management_uuid : ${lead_management_uuid}`);
+        }
+
+        // Get tenant company code
+        let tenantData: any = await this.tenant.findOne({ uuid: tenant_uuid }, { company_code: 1 }).lean();
+
+        // Delete lead from both collections for specific tenant
+        if (tenantData.company_code === "vyapar") {
+            await Promise.all([
+                this.leads_in_queue.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec(),
+                this.lead_management.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec()
+            ]);
+            Logger.debug(`Lead deleted from leads_in_queue and lead_management for tenant : ${tenant_uuid}`);
         }
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Lead skipped successfully");
     }
@@ -3841,15 +3857,15 @@ return uniqueIds;
                 { agent_uuid: uuid },   // ONLY this for uniqueness
                 {
                     $set: {
-                    campaign_uuid,
-                    tenant_uuid,
-                    domain,
-                    username,
-                    flag: "0"
+                        campaign_uuid,
+                        tenant_uuid,
+                        domain,
+                        username,
+                        flag: "0"
                     }
                 },
                 { upsert: true }
-                ).exec();
+            ).exec();
             // result = await this.auto_campaign_originate.updateOne({ agent_uuid: uuid, campaign_uuid, tenant_uuid, domain, username }, { flag: "0" }, { upsert: true }).exec();
 
             if (result.modifiedCount > 0) {
