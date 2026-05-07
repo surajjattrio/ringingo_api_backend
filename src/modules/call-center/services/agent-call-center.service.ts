@@ -151,6 +151,7 @@ export class AgentCallCenterService {
         let finalArray = {};
         if (manager_uuid != "" && manager_uuid != undefined && assigned_manager_role != undefined) {
             finalArray = await this.getCampaignsForManagerAgent(assigned_manager_role, tenant_uuid, manager_uuid);
+            if (!finalArray) finalArray = {};
         } else {
             let outboundCampaigns = await this.commonDbFn.findAllWithPagination(this.outbound_campaign, queryParams, "", "", { _id: -1 }, true, true);
             let inboundCampaigns = await this.commonDbFn.findAllWithPagination(this.inbound_campaign, queryParams, "", "", { _id: -1 }, true, true);
@@ -4082,10 +4083,14 @@ return uniqueIds;
     async getCampaignsForManagerAgent(assigned_manager_role, tenant_uuid, manager_uuid) {
         try {
             let allowedCampaignByTenant = await this.manager_role.findOne({ uuid: assigned_manager_role }, { role_name: 1, module_permission: 1, _id: 0 }).exec();
-            let outboundUUIDs = allowedCampaignByTenant?.module_permission["outbound-campaign"]["outbound-campaign-uuids"];
-            let inboundUUIDs = allowedCampaignByTenant?.module_permission["inbound-campaign"]["inbound-campaign-uuids"];
-            let blendedUUIDs = allowedCampaignByTenant?.module_permission["blended-campaign"]["blended-campaign-uuids"];
-            let finalArray = {};
+            let outboundUUIDs = allowedCampaignByTenant?.module_permission?.["outbound-campaign"]?.["outbound-campaign-uuids"] || [];
+            let inboundUUIDs = allowedCampaignByTenant?.module_permission?.["inbound-campaign"]?.["inbound-campaign-uuids"] || [];
+            let blendedUUIDs = allowedCampaignByTenant?.module_permission?.["blended-campaign"]?.["blended-campaign-uuids"] || [];
+            let finalArray = {
+                outbound_campaign: [],
+                inbound_campaign: [],
+                blended_campaign: []
+            };
             finalArray["outbound_campaign"] = await this.outbound_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: outboundUUIDs } }] }).exec();
             finalArray["inbound_campaign"] = await this.inbound_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: inboundUUIDs } }] }).exec();
             finalArray["blended_campaign"] = await this.blended_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: blendedUUIDs } }] }).exec();
@@ -4093,6 +4098,11 @@ return uniqueIds;
             return finalArray;
         } catch (error) {
             Logger.error(`Error in catch block ==> getCampaignsForManagerAgent()`, error.message);
+            return {
+                outbound_campaign: [],
+                inbound_campaign: [],
+                blended_campaign: []
+            };
         }
     }
 
