@@ -16,11 +16,15 @@ import { UserSchema, userSchema } from "src/modules/user/schema/user.schema"
 import { WebhookService } from './services/webhook.service';
 import { WebhookCron } from './services/webhook.cron';
 import { Webhook, WebhookSchema } from './schema/webhook.schema';
+import { WebhookConfig, WebhookConfigSchema } from './schema/webhook-config.schema';
+import { WebhookDeliveryLog, WebhookDeliveryLogSchema } from './schema/webhook-delivery-log.schema';
 
 @Module({
     imports: [
         MongooseModule.forFeature([
             { name: Webhook.name, schema: WebhookSchema },
+            { name: WebhookConfig.name, schema: WebhookConfigSchema },
+            { name: WebhookDeliveryLog.name, schema: WebhookDeliveryLogSchema },
             { name: CdrsSchema.name, schema: cdrsSchema },
             { name: IvrSchema.name, schema: ivrSchema },
             { name: RinggroupSchema.name, schema: ringgroupSchema },
@@ -33,7 +37,7 @@ import { Webhook, WebhookSchema } from './schema/webhook.schema';
         HttpModule],
     controllers: [WebhookController],
     providers: [WebhookService, WebhookCron, CdrsService, CdrsArchiveService, CDRSArchieveSearchService],
-    exports: [MongooseModule]
+    exports: [MongooseModule, WebhookService]
 })
 
 export class WebhookModule { }

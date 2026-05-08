@@ -8,6 +8,8 @@ import { DispositionDocument, DispositionSchema } from "src/modules/disposition/
 import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 import { Webhook, WebhookDocument } from "src/modules/webhook/schema/webhook.schema";
+import { WebhookConfig, WebhookConfigDocument } from "src/modules/webhook/schema/webhook-config.schema";
+import { WebhookDeliveryLog, WebhookDeliveryLogDocument } from "src/modules/webhook/schema/webhook-delivery-log.schema";
 
 @Injectable()
 export class WebhookService {
@@ -19,6 +21,8 @@ export class WebhookService {
 
     constructor(
         @InjectModel(Webhook.name) private readonly webhookModel: Model<WebhookDocument>,
+        @InjectModel(WebhookConfig.name) private readonly webhookConfigModel: Model<WebhookConfigDocument>,
+        @InjectModel(WebhookDeliveryLog.name) private readonly webhookDeliveryLogModel: Model<WebhookDeliveryLogDocument>,
         @InjectModel(CdrsSchema.name) private readonly cdrs: Model<CdrsDocument>,
         @InjectModel(DispositionSchema.name) private readonly disposition: Model<DispositionDocument>,
         private readonly commonDbFn: CommonDBFunctions,
@@ -290,5 +294,115 @@ export class WebhookService {
         if (bulkCdrUpdates.length) { await this.cdrs.bulkWrite(bulkCdrUpdates); }
 
         return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, payloads);
+    }
+
+    async triggerWebhook(tenant_uuid: string, webhook_type: string, payload: any) {
+        try {
+            // Find the active webhook configuration for this tenant and type
+            const webhookConfig = await this.webhookConfigModel.findOne({
+                tenant_uuid,
+                webhook_type,
+                is_active: true
+            }).lean();
+
+            if (!webhookConfig || !webhookConfig.webhook_url) {
+                Logger.debug(`No active webhook configuration found for tenant ${tenant_uuid} and type ${webhook_type}`);
+                return null;
+            }
+
+            const { headers = {}, bearer_token } = webhookConfig;
+            
+            // Build the final headers
+            const requestHeaders: Record<string, string> = {
+                "Content-Type": "application/json"
+            };
+
+            // Dynamically apply any additional headers provided in the configuration
+            if (headers && typeof headers === 'object') {
+                for (const [key, value] of Object.entries(headers)) {
+                    if (value) {
+                        requestHeaders[key] = value as string;
+                    }
+                }
+            }
+
+            if (bearer_token) {
+                requestHeaders["Authorization"] = `Bearer ${bearer_token}`;
+            }
+
+            // Asynchronous Fire-and-forget with retry logic
+            this.executeWebhookRequest(webhookConfig, requestHeaders, payload)
+                .catch(err => Logger.error(`Webhook ${webhook_type} background execution failed: ${err.message}`));
+
+            return true;
+        } catch (error) {
+            Logger.error(`Error triggering webhook ${webhook_type} for tenant ${tenant_uuid}: ${error.message}`);
+            return null;
+        }
+    }
+
+    private async executeWebhookRequest(webhookConfig: any, headers: any, data: any) {
+        const { uuid: webhookUuid, name: webhookName, webhook_url: url, method = "POST", timeout = 30000, max_retries = 1, retry_delay = 2000 } = webhookConfig;
+        const payloadItem = data?.['Incoming Webhook Payload']?.[0];
+        const leadUuid = payloadItem?.lead_uuid || null;
+        let attempt = 0;
+        
+        while (attempt <= max_retries) {
+            const startTime = Date.now();
+            try {
+                Logger.debug(`Triggering webhook ${url} - Attempt ${attempt + 1}/${max_retries + 1}`);
+                const config = {
+                    method: method.toLowerCase(),
+                    url,
+                    headers,
+                    data,
+                    timeout
+                };
+                
+                const response = await firstValueFrom(this.http.request(config));
+                const duration = Date.now() - startTime;
+                Logger.debug(`Webhook executed successfully. Status: ${response.status}`);
+                
+                await this.webhookDeliveryLogModel.create({
+                    webhookUuid,
+                    webhookName,
+                    leadUuid,
+                    status: 'success',
+                    statusCode: response.status,
+                    statusText: response.statusText,
+                    responseData: response.data,
+                    attempt: attempt + 1,
+                    duration
+                });
+                
+                return response.data;   
+            } catch (error) {
+                const duration = Date.now() - startTime;
+                const statusCode = error.response?.status || 500;
+                const statusText = error.response?.statusText || error.message;
+                const responseData = error.response?.data || { message: error.message };
+
+                await this.webhookDeliveryLogModel.create({
+                    webhookUuid,
+                    webhookName,
+                    leadUuid,
+                    status: 'failed',
+                    statusCode,
+                    statusText,
+                    responseData,
+                    attempt: attempt + 1,
+                    duration
+                });
+
+                attempt++;
+                Logger.error(`Webhook attempt ${attempt} failed: ${error.message}`);
+                
+                if (attempt > max_retries) {
+                    throw new Error(`Max retries reached. Webhook failed: ${error.message}`);
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, retry_delay));
+            }
+        }
     }
 }

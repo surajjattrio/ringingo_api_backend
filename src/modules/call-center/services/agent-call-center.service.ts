@@ -70,6 +70,7 @@ import { ArcheiveOmnichannelmessageSchema } from "../schema/archieve_omnichannel
 import { ArchieveOmniMessaggeDto } from "../dto/archive_omni_message.dto";
 import { OmniChannelReportDocument, OmniChannelReportSchema } from "src/modules/omni-channel-report/schema/omni-channel-report.schema";
 import { UserRoleDocument, UserRoleSchema } from "src/modules/user-role/schema/user-role.schema";
+import { WebhookService } from "src/modules/webhook/services/webhook.service";
 
 @Injectable()
 export class AgentCallCenterService {
@@ -138,6 +139,7 @@ export class AgentCallCenterService {
         private readonly commonDbFn: CommonDBFunctions,
         private readonly commonFn: CommonFunctions,
         private readonly socketService: SocketService,
+        private readonly webhookService: WebhookService,
     ) { }
 
     /*
@@ -897,7 +899,19 @@ export class AgentCallCenterService {
         let tenantData: any = await this.tenant.findOne({ uuid: tenant_uuid }, { company_code: 1 }).lean();
 
         // Delete lead from both collections for specific tenant
-        if (tenantData.company_code === "vyapar") {
+        if (tenantData?.company_code === "vyapar") {
+            // Trigger leadSkip webhook
+            const webhookPayload = {
+                "Incoming Webhook Payload": [
+                    {
+                        agent_uuid: uuid,
+                        lead_uuid: lead_management_uuid,
+                        status: "Lead Skip By Agent"
+                    }
+                ]
+            };
+            await this.webhookService.triggerWebhook(tenant_uuid, "leadSkip", webhookPayload);
+
             await Promise.all([
                 this.leads_in_queue.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec(),
                 this.lead_management.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec()
