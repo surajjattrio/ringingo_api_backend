@@ -255,9 +255,9 @@ export class UserService {
         let populateFields = [{ path: "user_roles", select: "name" }, { path: "tenant", select: 'tenant_name username' }, { path: "user_group", select: 'name' }, { path: "default_extension_detail", select: "username -_id -uuid" }];
 
         if (queryParams.webhook === 'true') {
-            let result = await this.user.find({ tenant_uuid: queryParams.tenant_uuid }, { fullname: 1, uuid: 1, createdAt: 1, _id: 0 }).exec();
+            let result = await this.user.find({ tenant_uuid: queryParams.tenant_uuid }, { email: 1, username: 1, fullname: 1, uuid: 1, createdAt: 1, _id: 0 }).exec();
             const users = Array.isArray(result) ? result : (result as any)?.data || [];
-            return { statusCode: HttpStatus.OK, data: users.map(user => ({ agentName: user.fullname, agentId: user.uuid })), message: "Users fetched successfully" };
+            return { statusCode: HttpStatus.OK, data: users.map((user: any) => ({ agentName: user.fullname, email: user.email, username: user.username, agentId: user.uuid })), message: "Users fetched successfully" };
         } else {
             return this.commonDbFn.findAllWithPagination(this.user, queryParams, searchFields, populateFields, { status: 1, _id: -1 });
         }
