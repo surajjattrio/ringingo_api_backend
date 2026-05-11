@@ -427,12 +427,24 @@ export class AgentCallCenterService {
                 tenant_uuid,
                 campaign_uuid,
                 lead_sent: { $in: ["1", 1] },
+                $and: [
+                    {
+                        $or: [
+                            { assigned_agent_uuid: "" },
+                            { assigned_agent_uuid: null },
+                            { assigned_agent_uuid: { $exists: false } },
+                            { assigned_agent_uuid: agent_uuid }
+                        ]
+                    },
+                    {
                 $or: [
                     // Retry leads (time passed)
                     { resend_lead_time: { $lte: new Date() } },
                     // Fresh leads
                     { resend_lead_time: { $exists: false } },
                     { resend_lead_time: null }
+                        ]
+                    }
                 ]
             };
 
@@ -441,7 +453,7 @@ export class AgentCallCenterService {
              * agent_uuid is ARRAY in DB
              * --------------------------------- */
             if (campaign_mode === "2" && agent_uuid) {
-                query.$and = [
+                query.$and.push(
                     {
                         $or: [
                             { agent_uuid: { $nin: [agent_uuid] } },
@@ -449,7 +461,7 @@ export class AgentCallCenterService {
                             { agent_uuid: { $exists: false } }
                         ]
                     }
-                ];
+                );
             }
 
             let result: any = null;
