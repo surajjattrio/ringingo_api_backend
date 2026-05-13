@@ -75,7 +75,7 @@ export class LoginlogoutreportService {
      //                let endDate = nonBillableBreakEntries[j + 1].date;
      //                calculateHours = this.calculateHours(startDate, endDate, "EH");
      //                effectiveHours.push(calculateHours);
-     //           } catch (error) {
+     //           } catch (error: any) {
      //                Logger.error("Error in calculating non-billable break hours", error.message);
      //           }
      //      }
@@ -273,11 +273,11 @@ export class LoginlogoutreportService {
                const { date, agent_uuid } = queryParam;
                let populateFields = [{ path: "breakcode", select: "name break_code duration" }];
                if (date != "" && date != undefined) {
-                    let response = await this.agent_login_logout_report.find({ date, agent_uuid: agent_uuid }, { date_time: 1, date: 1, createdAt: 1, login_status: 1, breakcode_uuid: 1 }).populate(populateFields).sort({ _id: 1 }).exec();
+                    let response = await this.agent_login_logout_report.find({ date, agent_uuid: agent_uuid }, { date_time: 1, date: 1, createdAt: 1, login_status: 1, breakcode_uuid: 1 }).populate(populateFields).sort({ createdAt: 1 }).exec();
                     let statusCode = response.length > 0 ? HttpStatus.OK : HttpStatus.NOT_FOUND;
                     return this.commonDbFn.sendResponseWithMessage(statusCode, response);
                }
-          } catch (error) {
+          } catch (error: any) {
                Logger.error(`Unable to fetch details`, error.message);
                return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Unable to fetch details`);
           }
@@ -583,7 +583,7 @@ export class LoginlogoutreportService {
                try {
                     calculateHours = this.calculateHours(allDates[i].date, allDates[i + 1].date, "EH");
                     effectiveHours.push(calculateHours);
-               } catch (error) {
+               } catch (error: any) {
                     Logger.error("Error in calculating effective hours", error.message);
                }
           }
@@ -635,7 +635,7 @@ export class LoginlogoutreportService {
      //           try {
      //                calculateHours = this.calculateHours(loginentries[j].date, loginentries[j + 1].date, "EH");
      //                effectiveHours.push(calculateHours);
-     //           } catch (error) {
+     //           } catch (error: any) {
      //                Logger.error("Error in calculating effective hours", error.message);
      //           }
      //      }
@@ -665,7 +665,7 @@ export class LoginlogoutreportService {
                          "EH"
                     );
                     effectiveHours.push(calculateHours);
-               } catch (error) {
+               } catch (error: any) {
                     Logger.error("Error in calculating effective hours", error.message);
                }
           }
@@ -692,7 +692,7 @@ export class LoginlogoutreportService {
      //           try {
      //                calculateHours = this.calculateHours(breakentries[j].date, breakentries[j + 1].date, "EH");
      //                effectiveHours.push(calculateHours);
-     //           } catch (error) {
+     //           } catch (error: any) {
      //                Logger.error("Error in calculating effective hours", error.message);
      //           }
      //      }
@@ -733,7 +733,7 @@ export class LoginlogoutreportService {
                     );
 
                     effectiveHours.push(calculateHours);
-               } catch (error) {
+               } catch (error: any) {
                     Logger.error("Error calculating break hours", error.message);
                }
           }
@@ -768,23 +768,23 @@ export class LoginlogoutreportService {
      async exportLoginLogoutWithInfo(queryParams) {
           try {
                const { tenant_uuid, timezone } = queryParams;
-               
+
                // Get summary data using existing method
                const summaryResponse = await this.fetchLoginLogoutReportStatistics(queryParams);
                const summaryData = summaryResponse.data || [];
-               
+
                const exportData = [];
-               
+
                // For each summary record, fetch detailed information
                for (const summary of summaryData) {
                     const entryParams = {
                          date: summary.date,
                          agent_uuid: summary.agent_uuid
                     };
-                    
+
                     const infoResponse = await this.fetchLoginLogoutEntries(entryParams);
                     const infoData = infoResponse.data || [];
-                    
+
                     if (infoData.length > 0) {
                          // Create separate rows for each information entry
                          infoData.forEach((info: any, index: number) => {
@@ -800,7 +800,7 @@ export class LoginlogoutreportService {
                                    break_count: summary.break_count,
                                    total_break_hours: summary.total_break_hours,
                                    net_login: summary.net_login,
-                                   
+
                                    // Information data
                                    info_time_stamp: info.date_time ? moment.tz(info.date_time, timezone).format("HH:mm") : "",
                                    info_event: this.getEventStatus(info),
@@ -826,14 +826,14 @@ export class LoginlogoutreportService {
                          });
                     }
                }
-               
+
                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, exportData);
-          } catch (error) {
+          } catch (error: any) {
                Logger.error("Error exporting login logout with information", error.message);
                return this.commonDbFn.sendResponseWithMessage(HttpStatus.INTERNAL_SERVER_ERROR, "Export failed");
           }
      }
-     
+
      getEventStatus(rowData) {
           if (rowData.login_status === "0" && rowData.breakcode?.length) {
                return `Break End - ${rowData.breakcode[0].name}`;
@@ -846,28 +846,25 @@ export class LoginlogoutreportService {
           }
           return "";
      }
-     
+
      getDuration(startDate, endDate) {
           if (!startDate || !endDate) return "";
-          
-          try {
-               const date1 = new Date(startDate);
-               const date2 = new Date(endDate);
-               const diff = date2.getTime() - date1.getTime();
-               
-               if (diff > 60e3) {
-                    let minutes = Math.floor(diff / 60e3);
-                    let hours = Math.floor(minutes / 60);
-                    let remainingMinutes = minutes % 60;
-                    
-                    return `${hours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
-               }
-               return "";
-          } catch (error) {
-               return "";
+
+          const date1 = new Date(startDate);
+          const date2 = new Date(endDate);
+          if (Number.isNaN(date1.getTime()) || Number.isNaN(date2.getTime())) return "";
+
+          const diff = date2.getTime() - date1.getTime();
+          if (diff > 60e3) {
+               let minutes = Math.floor(diff / 60e3);
+               let hours = Math.floor(minutes / 60);
+               let remainingMinutes = minutes % 60;
+
+               return `${hours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
           }
+          return "";
      }
-     
+
      getEventDuration(rowData, index, infoData) {
           if (
                infoData[index - 1] &&
