@@ -102,6 +102,7 @@ import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { ActivityLogInterceptor } from "./interceptor/activity-log.interceptor";
 import { WebhookModule } from "./modules/webhook/webhook.module";
 import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
+import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-dashboard.module";
 
 @Module({
   imports: [
@@ -201,7 +202,8 @@ import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
     RequestSchedulerModule,
     GoogleDriveModule,
     WebhookModule,
-    VoiceAlertModule
+    VoiceAlertModule,
+    RealtimeDashboardModule,
   ],
   controllers: [],
   providers: [
