@@ -175,17 +175,31 @@ export class RealtimeDashboardService {
                     });
                 }
             }
+            // Build a set of all b_uuids from inbound legs
+            const bridgedBUuids = new Set<string>();
+            fsCalls.forEach(call => {
+                const direction = (call.direction?.[0] || "").toLowerCase();
+                const bUuid = call.b_uuid?.[0] || "";
+                if (direction === "inbound" && bUuid) {
+                    bridgedBUuids.add(bUuid);
+                }
+            });
 
             console.log("fsCalls*********", fsCalls);
             
             fsCalls.forEach(call => {
+                const callUuid = call.uuid?.[0] || "";
+                const direction = (call.direction?.[0] || "").toLowerCase();
+
+                // Skip B-leg if it's already represented by an inbound A-leg
+                if (direction === "outbound" && bridgedBUuids.has(callUuid)) return;
                 const presenceDataStr = call.presence_data?.[0] || "";
                 
                 // Parse presence_data variables
                 const presenceVars: any = {};
                 presenceDataStr.split(",").forEach(pair => {
                     const [key, val] = pair.split("=");
-                    if (key) presenceVars[key] = val;
+                    if (key) presenceVars[key.trim()] = val?.trim();;
                 });
                 
                 console.log("Parsed Presence Vars:", presenceVars);
@@ -196,16 +210,21 @@ export class RealtimeDashboardService {
 
                 // Determine category
                 const state = (call.callstate?.[0] || "").toUpperCase();
-                const b_state = (call.b_state?.[0] || "").toUpperCase();
-                
-                // Dialing: either A-leg or B-leg is in a non-active state
-                const isDialing = ["DOWN", "DIALING", "RINGING", "EARLY"].includes(state) || 
-                                 (call.b_callstate && ["DOWN", "DIALING", "RINGING", "EARLY"].includes((call.b_callstate[0] || "").toUpperCase()));
-                
-                // Active: both legs are generally UP/ACTIVE
-                const isActive = ["ACTIVE", "CONNECTED", "HELD"].includes(state) || 
-                                (call.b_state && ["CS_EXCHANGE_MEDIA", "CS_SOFT_EXECUTE"].includes(b_state));
+                const bCallstate = (call.b_callstate?.[0] || call.b_state?.[0] || "").toUpperCase();
+                const bUuid = call.b_uuid?.[0] || "";
 
+                // For inbound: A-leg shows ACTIVE early, but if B-leg is ringing, it's still dialing
+                const isDialing =
+                    ["DOWN", "DIALING", "RINGING", "EARLY"].includes(state) ||
+                    ["DOWN", "DIALING", "RINGING", "EARLY"].includes(bCallstate) ||
+                    // KEY FIX: inbound A-leg is ACTIVE but agent B-leg hasn't answered yet
+                    (direction === "inbound" && ["ACTIVE", "CS_EXECUTE"].includes(state) && bUuid === "");
+
+                // Active only if B-leg also exists and is connected
+                const isActive =
+                    !isDialing &&
+                    ["ACTIVE", "CONNECTED", "HELD"].includes(state) &&
+                    bUuid !== ""; // B-leg must exist and be bridged
                 if (!isDialing && !isActive) return;
 
                 // Identify lead group from FS metadata or lookup via lead_management_uuid/lead_uuid or phone number
