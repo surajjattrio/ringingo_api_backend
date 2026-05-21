@@ -311,12 +311,66 @@ export class InboundCampaignService {
                     }
 
                     //Update campaign & call_mode in cdrs
-		    let lastCdrsRecordDetail = await this.cdrs.findOne({ lead_uuid: lead_management_uuid , custom_callid, tenant_uuid}, { uuid: 1, _id: 0 }).sort({ _id: -1 }).exec();
-                    const cdrsResult = await this.cdrs.updateOne({ uuid: lastCdrsRecordDetail.uuid }, { campaign_uuid, call_mode: "1", wrap_up_time, wrap_up_time_duration, hangup_cause: lead_status ? lead_status : lead_status_1 ? lead_status_1 : lead_status_2 }).exec();
-                    if (cdrsResult.matchedCount == 0 && cdrsResult.modifiedCount == 0) {
-                        Logger.error(`Unable to update campaign & call_mode in cdrs with uuid : ${lastCdrsRecordDetail.uuid}`, patchMethod);
-                    } else {
-                        Logger.debug(`Updated campaign & call_mode successfully in cdrs with uuid : ${lastCdrsRecordDetail.uuid}`, patchMethod);
+                    // let lastCdrsRecordDetail = await this.cdrs.findOne({ lead_uuid: lead_management_uuid , custom_callid, tenant_uuid}, { uuid: 1, _id: 0 }).sort({ _id: -1 }).exec();
+                    // const cdrsResult = await this.cdrs.updateOne({ uuid: lastCdrsRecordDetail.uuid }, { campaign_uuid, call_mode: "1", wrap_up_time, wrap_up_time_duration, hangup_cause: lead_status ? lead_status : lead_status_1 ? lead_status_1 : lead_status_2 }).exec();
+                    // if (cdrsResult.matchedCount == 0 && cdrsResult.modifiedCount == 0) {
+                    //     Logger.error(`Unable to update campaign & call_mode in cdrs with uuid : ${lastCdrsRecordDetail.uuid}`, patchMethod);
+                    // } else {
+                    //     Logger.debug(`Updated campaign & call_mode successfully in cdrs with uuid : ${lastCdrsRecordDetail.uuid}`, patchMethod);
+                    // }
+
+                    let query: any = {
+                        lead_uuid: lead_management_uuid,
+                        tenant_uuid: tenant_uuid
+                    };
+
+                    // Only include custom_callid if it's not empty
+                    if (custom_callid && custom_callid !== "") {
+                        query.custom_callid = custom_callid;
+                    }
+
+                    try {
+                        const updatedCdr = await this.cdrs.findOneAndUpdate(
+                            query,
+                            {
+                                $set: {
+                                    campaign_uuid,
+                                    call_mode: "1",
+                                    wrap_up_time,
+                                    wrap_up_time_duration,
+                                    hangup_cause: lead_status
+                                        ? lead_status
+                                        : lead_status_1
+                                            ? lead_status_1
+                                            : lead_status_2
+                                }
+                            },
+                            {
+                                sort: { createdAt: -1 }, // latest record
+                                projection: { uuid: 1, _id: 0 },
+                                new: true // return updated document
+                            }
+                        ).exec();
+
+                        if (!updatedCdr) {
+                            Logger.error(
+                                `Unable to update campaign & call_mode in cdrs for custom_callid : ${custom_callid}`,
+                                patchMethod
+                            );
+                        } else {
+                            Logger.debug(
+                                `Updated campaign & call_mode successfully in cdrs with uuid : ${updatedCdr.uuid}`,
+                                patchMethod
+                            );
+                        }
+
+                    } catch (error) {
+                        Logger.error(
+                            `Error while updating campaign & call_mode in cdrs : ${error.message}`,
+                            patchMethod
+                        );
+
+                        // execution will continue below
                     }
 
                     if (campaign_type != "0") {

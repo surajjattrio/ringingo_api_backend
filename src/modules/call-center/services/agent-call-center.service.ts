@@ -739,8 +739,18 @@ export class AgentCallCenterService {
         // } else {
         //     Logger.debug(`Lead status updated successfully in cdrs`);
         // }
-        const cdrsResponse = await this.cdrs.findOneAndUpdate(
-            { custom_callid: body.custom_callid, lead_uuid: lead_management_uuid, tenant_uuid: body.tenant_uuid },
+        let query: any = {
+            lead_uuid: lead_management_uuid,
+            tenant_uuid: body.tenant_uuid
+        };
+
+        // Only include custom_callid if it's not empty
+        if (body.custom_callid && body.custom_callid !== "") {
+            query.custom_callid = body.custom_callid;
+        }
+
+        let cdrsResponse: any = await this.cdrs.findOneAndUpdate(
+            query,
             [{
                 $set: {
                     hangup_cause: body.lead_status,
@@ -3934,36 +3944,138 @@ return uniqueIds;
     //     } );
     // }
 
+    // async parseXML(command) {
+    //     console.log("parseXML - command", command);
+    //     let conn, xml, self = this;
+    //     const parser = new xml2js.Parser({ attrkey: "ATTR" });
+    //     return new Promise(async function (resolve, reject) {
+    //         try {
+    //             conn = await self.commonFn.fetchFsConnection();
+    //             conn.api(`${command}`, function (res) {
+    //                 xml = res.getBody().trim();
+    //                 console.log('live call xml');
+    //                 console.log(xml);
+
+    //                 // Check if the XML is not found or empty
+    //                 if ((xml.includes("+OK Job-UUID:") || xml.includes("-ERR Agent")) && !xml.trim().endsWith(">")) {
+    //                     // Resolve with default XML response
+    //                     resolve({ result: { ATTR: { row_count: "0" } } });
+    //                 } else {
+    //                     parser.parseString(xml, function (err, result) {
+    //                         if (err === null) {
+    //                             resolve(result);
+    //                         } else {
+    //                             console.log(err, "Error in live calls");
+    //                             reject(err);
+    //                         }
+    //                     });
+    //                 }
+    //             });
+    //         } catch (error) {
+    //             console.log(error, "Error in connection or fetching data");
+    //             reject(error);
+    //         }
+    //     });
+    // }
+
     async parseXML(command) {
         console.log("parseXML - command", command);
+
         let conn, xml, self = this;
         const parser = new xml2js.Parser({ attrkey: "ATTR" });
+
         return new Promise(async function (resolve, reject) {
             try {
                 conn = await self.commonFn.fetchFsConnection();
-                conn.api(`${command}`, function (res) {
-                    xml = res.getBody().trim();
-                    console.log('live call xml');
-                    console.log(xml);
 
-                    // Check if the XML is not found or empty
-                    if ((xml.includes("+OK Job-UUID:") || xml.includes("-ERR Agent")) && !xml.trim().endsWith(">")) {
-                        // Resolve with default XML response
-                        resolve({ result: { ATTR: { row_count: "0" } } });
-                    } else {
+                conn.api(`${command}`, function (res) {
+                    try {
+                        xml = res.getBody()?.trim() || "";
+
+                        console.log("live call xml");
+                        console.log(xml);
+
+                        // Handle empty response
+                        if (!xml) {
+                            return resolve({
+                                result: { ATTR: { row_count: "0" } }
+                            });
+                        }
+
+                        // Handle FreeSWITCH OK / ERR non-XML responses
+                        if (
+                            xml.startsWith("+OK") ||
+                            xml.startsWith("-ERR")
+                        ) {
+                            console.log("Non XML FreeSWITCH response:", xml);
+
+                            return resolve({
+                                result: {
+                                    ATTR: {
+                                        row_count: "0"
+                                    },
+                                    message: xml
+                                }
+                            });
+                        }
+
+                        // Validate XML before parsing
+                        if (!xml.startsWith("<")) {
+                            console.log("Invalid XML response:", xml);
+
+                            return resolve({
+                                result: {
+                                    ATTR: {
+                                        row_count: "0"
+                                    },
+                                    message: "Invalid XML response"
+                                }
+                            });
+                        }
+
+                        // Parse XML
                         parser.parseString(xml, function (err, result) {
-                            if (err === null) {
-                                resolve(result);
-                            } else {
+                            if (err) {
                                 console.log(err, "Error in live calls");
-                                reject(err);
+
+                                return resolve({
+                                    result: {
+                                        ATTR: {
+                                            row_count: "0"
+                                        },
+                                        message: "XML Parse Error"
+                                    }
+                                });
+                            }
+
+                            resolve(result);
+                        });
+
+                    } catch (innerError) {
+                        console.log(innerError, "Inner parsing error");
+
+                        resolve({
+                            result: {
+                                ATTR: {
+                                    row_count: "0"
+                                },
+                                message: "Parsing exception"
                             }
                         });
                     }
                 });
+
             } catch (error) {
                 console.log(error, "Error in connection or fetching data");
-                reject(error);
+
+                resolve({
+                    result: {
+                        ATTR: {
+                            row_count: "0"
+                        },
+                        message: "Connection error"
+                    }
+                });
             }
         });
     }
