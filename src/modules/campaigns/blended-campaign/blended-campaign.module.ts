@@ -12,12 +12,15 @@ import { BlendedCampaignDispositionSchema, blendedCampaigndispositionSchema } fr
 import { AgentCampaignLoginSchema, agentCampaignLoginSchema } from 'src/modules/call-center/schema/agent-campaign-login.schema';
 import { ExtensionSchema, extensionSchema } from 'src/modules/extension/schema/extension.schema';
 import { TenantSchema, tenantSchema } from 'src/modules/tenant/schema/tenant.schema';
+import { AgentLiveReportSchema, agentLiveReportSchema } from 'src/modules/call-center/schema/agent-live-report.schema';
+import { WebsocketsModule } from 'src/modules/websockets/websockets.module';
 
 @Module({
     imports: [MongooseModule.forFeature([{ name: BlendedCampaignSchema.name, schema: blendedCampaignSchema }, { name: VoiceBroadcastSchema.name, schema: voiceBroadcastSchema }]), MongooseModule.forFeature([{ name: BlendedCampaignDispositionSchema.name, schema: blendedCampaigndispositionSchema }]),
     MongooseModule.forFeature( [ { name: BlendedCampaignDialableStatus.name, schema: blendedCampaignDialableStatus } ] ),  
-     MongooseModule.forFeature([{ name: AgentCampaignLoginSchema.name, schema: agentCampaignLoginSchema }, { name: ExtensionSchema.name, schema: extensionSchema }, { name: TenantSchema.name, schema: tenantSchema }]), 
-     LeadGroupModule, DispositionModule, forwardRef(() => LeadManagementModule)],
+     MongooseModule.forFeature([{ name: AgentLiveReportSchema.name, schema: agentLiveReportSchema }, { name: ExtensionSchema.name, schema: extensionSchema }, { name: TenantSchema.name, schema: tenantSchema }, { name: AgentCampaignLoginSchema.name, schema: agentCampaignLoginSchema }]), 
+     LeadGroupModule, DispositionModule, forwardRef(() => LeadManagementModule),
+     WebsocketsModule],
     controllers: [ BlendedCampaignController ],
     providers: [ BlendedCampaignService ],
     exports: [ MongooseModule, BlendedCampaignService ]

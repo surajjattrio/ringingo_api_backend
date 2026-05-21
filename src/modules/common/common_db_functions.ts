@@ -370,8 +370,13 @@ export class CommonDBFunctions {
             query.hangup_cause = queryParams.hangup_cause;
         }
 
+        if (queryParams.pbx_feature) {
+            query.pbx_feature = queryParams.pbx_feature;
+        }
 
-
+        if (queryParams.status !== undefined) {
+            query.status = queryParams.status;
+        }
 
         if ((((!queryParams.limit) || (queryParams.limit && queryParams.limit == "")) && ((!queryParams.page) || (queryParams.page && queryParams.page == ""))) || (queryParams.list && queryParams.list == "all")) {
             pagination = false;
@@ -390,7 +395,10 @@ export class CommonDBFunctions {
         } else if (queryParams.callstate == "missed") {
             query.call_state = "missed";
         } else if (queryParams.callstate == "call-queue") {
-            query.call_state = "call-queue";
+            // query.call_state = "call-queue";
+            query.call_state = "missed";
+            query.pbx_feature = "call-queue";
+            query.direction = "inbound";
         }
 
         //Check search parameters
@@ -462,7 +470,7 @@ export class CommonDBFunctions {
         Logger.debug(`Fetching data from role : ${role} with ${JSON.stringify(checkRole)}`);
 
         //Check tableName here, if it is cdrs then display only today call records
-        if (queryParams.tableName == "cdrs" || queryParams.tableName == "recording" || queryParams.tableName == "vb_details") {
+        if (queryParams.tableName == "cdrs" || queryParams.tableName == "recording" || queryParams.tableName == "vb_details" || queryParams.tableName == "drop_calls" || queryParams.tableName == "missed_calls") {
             filterDate = { callstart: { '$regex': this.commonFn.getTodayDate(), '$options': 'i' } }
         }
 
@@ -582,7 +590,7 @@ export class CommonDBFunctions {
         if (queryParams.tableName == "cdrs") {
             result?.map((data) => {
                 const outResult = typeof data.toObject === 'function' ? data.toObject() : data; // already a plain object
-		if (data.disposition !== "NO_ROUTE_DESTINATION"){
+                if (data.disposition !== "NO_ROUTE_DESTINATION"){
                     data.callstart = moment.tz(new Date(outResult.callstart + "Z"), queryParams.timezone).format("YYYY-MM-DD HH:mm:ss");
                 }
                 // data.disconnected_by_label = outResult.disconnected_by === '0' ? "Agent" : "Customer";

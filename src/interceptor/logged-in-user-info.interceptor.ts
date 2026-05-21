@@ -84,7 +84,7 @@ export class SetUUIDInterceptor implements NestInterceptor {
                 if ( Array.isArray( data?.data ) ) {
                     finalData = data?.data;
                     finalData.map( ( newData ) => {
-                        if ( request.body.timezone != undefined || request.query.timezone != undefined ) {
+                        if ( (request.body.timezone != undefined || request.query.timezone != undefined) && newData.createdAt ) {
                             newData[ "converted_date" ] = moment( new Date( newData.createdAt ) ).tz( timezone ).format( "YYYY-MM-DD HH:mm:ss" );
                         }
                         arr.push( newData );

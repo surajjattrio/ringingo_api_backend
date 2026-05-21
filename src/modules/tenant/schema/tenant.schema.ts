@@ -38,6 +38,9 @@ export class TenantSchema {
     email: String
 
     @Prop()
+    mobile_number: String;
+
+    @Prop()
     role_uuid: String
 
     @Prop()
@@ -84,6 +87,12 @@ export class TenantSchema {
 
     @Prop( { unique: true } )
     company_code: String;
+
+    @Prop()
+    vendor_uid: String;
+
+    @Prop()
+    vendor_token: String;
 }
 
 let tenantSchema = SchemaFactory.createForClass( TenantSchema );

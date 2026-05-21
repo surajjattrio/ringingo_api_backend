@@ -6,6 +6,7 @@ import { LeadGroupModule } from '../lead-group/lead-group.module';
 import { NotesModule } from '../notes/notes.module';
 import { LeadManagementModule } from '../lead-management/lead-management.module';
 import { CdrsModule } from '../cdrs/cdrs.module';
+import { WebhookModule } from '../webhook/webhook.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AutoCampaignOriginateSchema, autoCampaignOriginateSchema } from './schema/auto-campaign-originate.schema';
 import { LeadOriginateSchema, leadOriginateSchema } from './schema/lead-originate.schema';
@@ -50,7 +51,7 @@ import { omniChannelReportSchema, OmniChannelReportSchema } from '../omni-channe
 import { userRoleSchema, UserRoleSchema } from '../user-role/schema/user-role.schema';
 
 @Module( {
-        imports: [ OutboundCampaignModule, LeadGroupModule, NotesModule, LeadManagementModule, CdrsModule,
+        imports: [ OutboundCampaignModule, LeadGroupModule, NotesModule, LeadManagementModule, CdrsModule, WebhookModule,
                 MongooseModule.forFeature( [
                         { name: AutoCampaignOriginateSchema.name, schema: autoCampaignOriginateSchema },
                         { name: LeadOriginateSchema.name, schema: leadOriginateSchema },

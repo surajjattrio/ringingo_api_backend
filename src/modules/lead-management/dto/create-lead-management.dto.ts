@@ -140,6 +140,9 @@ export class CreateLeadManagementDto {
     @IsOptional()
     webhook: boolean
 
+    @IsOptional()
+    assigned_agent_uuid: string
+
     // @IsOptional()
     // DebtorAccount: any
 

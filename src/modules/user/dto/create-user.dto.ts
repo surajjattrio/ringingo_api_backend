@@ -99,4 +99,9 @@ export class CreateUserDto {
     @IsOptional()
     @IsString()
     caller_id_number?: string;
+
+    @ApiProperty()
+    @IsOptional()
+    @IsString()
+    mobile_number?: string;
 }

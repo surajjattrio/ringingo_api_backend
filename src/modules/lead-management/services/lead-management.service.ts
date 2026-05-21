@@ -192,7 +192,21 @@ export class LeadManagementService {
         const campaign_flag = result?.campaign_flag;
         createLeadManagementDto.custom_phone_number = phone_code.concat(phone_number);
 
-        let response = await this.commonDbFn.findAndInsert(this.lead_management, where, createLeadManagementDto, JSON.stringify(logMessages), "and", true);
+        let isVyapar = false;
+        let actual_tenant_uuid = createLeadManagementDto.tenant_uuid || tenant_uuid;
+        if (actual_tenant_uuid) {
+            const tenantInfo = await this.tenantModel.findOne({ uuid: actual_tenant_uuid }, { company_code: 1 }).exec();
+            if (tenantInfo?.company_code?.toLowerCase() === 'vyapar') {
+                isVyapar = true;
+            }
+        }
+
+        let response;
+        if (isVyapar) {
+            response = await this.commonDbFn.insert(this.lead_management, createLeadManagementDto, JSON.stringify(logMessages), true);
+        } else {
+            response = await this.commonDbFn.findAndInsert(this.lead_management, where, createLeadManagementDto, JSON.stringify(logMessages), "and", true);
+        }
 
         if (campaign_flag == 'blended') {
             await this.commonDbFn.leads_count_update(this.lead_group, this.lead_management, this.blended_campaign, lead_group_uuid, campaign_uuid)
@@ -209,25 +223,25 @@ export class LeadManagementService {
             this.bindLeadWithCdrsAndNotes(cdrs_uuid, response.message.lead_management_uuid);
         }
 
-	// // Call resetLeads after successful lead creation
-        // if (campaign_uuid && lead_group_uuid && tenant_uuid) {
-        //     const resetLeadDto: ResetLeadDto = {
-        //         lead_group_uuid: lead_group_uuid as string,
-        //         campaign_uuid: campaign_uuid as string,
-        //         tenant_uuid: tenant_uuid as string
-        //     };
-        //     try {
-        //         // Use appropriate service based on campaign_flag
-        //         if (campaign_flag === 'blended') {
-        //             await this.blendedCampaignService.resetLeads(resetLeadDto);
-        //         } else {
-        //             await this.outboundCampaignService.resetLeads(resetLeadDto);
-        //         }
-        //         Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
-        //     } catch (error) {
-        //         Logger.error(`Error calling resetLeads: ${error.message}`);
-        //     }
-        // }
+	// Call resetLeads after successful lead creation
+        if (campaign_uuid && lead_group_uuid && tenant_uuid) {
+            const resetLeadDto: ResetLeadDto = {
+                lead_group_uuid: lead_group_uuid as string,
+                campaign_uuid: campaign_uuid as string,
+                tenant_uuid: tenant_uuid as string
+            };
+            try {
+                // Use appropriate service based on campaign_flag
+                if (campaign_flag === 'blended') {
+                    await this.blendedCampaignService.resetLeads(resetLeadDto);
+                } else {
+                    await this.outboundCampaignService.resetLeads(resetLeadDto);
+                }
+                Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
+            } catch (error) {
+                Logger.error(`Error calling resetLeads: ${error.message}`);
+            }
+        }
 
         if (createLeadManagementDto.webhook === true) {
             return { statusCode: response?.statusCode, message: response?.data, lead_uuid: response?.message?.lead_management_uuid }

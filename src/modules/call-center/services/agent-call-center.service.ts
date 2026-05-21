@@ -70,6 +70,7 @@ import { ArcheiveOmnichannelmessageSchema } from "../schema/archieve_omnichannel
 import { ArchieveOmniMessaggeDto } from "../dto/archive_omni_message.dto";
 import { OmniChannelReportDocument, OmniChannelReportSchema } from "src/modules/omni-channel-report/schema/omni-channel-report.schema";
 import { UserRoleDocument, UserRoleSchema } from "src/modules/user-role/schema/user-role.schema";
+import { WebhookService } from "src/modules/webhook/services/webhook.service";
 
 @Injectable()
 export class AgentCallCenterService {
@@ -138,6 +139,7 @@ export class AgentCallCenterService {
         private readonly commonDbFn: CommonDBFunctions,
         private readonly commonFn: CommonFunctions,
         private readonly socketService: SocketService,
+        private readonly webhookService: WebhookService,
     ) { }
 
     /*
@@ -151,6 +153,7 @@ export class AgentCallCenterService {
         let finalArray = {};
         if (manager_uuid != "" && manager_uuid != undefined && assigned_manager_role != undefined) {
             finalArray = await this.getCampaignsForManagerAgent(assigned_manager_role, tenant_uuid, manager_uuid);
+            if (!finalArray) finalArray = {};
         } else {
             let outboundCampaigns = await this.commonDbFn.findAllWithPagination(this.outbound_campaign, queryParams, "", "", { _id: -1 }, true, true);
             let inboundCampaigns = await this.commonDbFn.findAllWithPagination(this.inbound_campaign, queryParams, "", "", { _id: -1 }, true, true);
@@ -424,12 +427,24 @@ export class AgentCallCenterService {
                 tenant_uuid,
                 campaign_uuid,
                 lead_sent: { $in: ["1", 1] },
+                $and: [
+                    {
+                        $or: [
+                            { assigned_agent_uuid: "" },
+                            { assigned_agent_uuid: null },
+                            { assigned_agent_uuid: { $exists: false } },
+                            { assigned_agent_uuid: agent_uuid }
+                        ]
+                    },
+                    {
                 $or: [
                     // Retry leads (time passed)
                     { resend_lead_time: { $lte: new Date() } },
                     // Fresh leads
                     { resend_lead_time: { $exists: false } },
                     { resend_lead_time: null }
+                        ]
+                    }
                 ]
             };
 
@@ -438,7 +453,7 @@ export class AgentCallCenterService {
              * agent_uuid is ARRAY in DB
              * --------------------------------- */
             if (campaign_mode === "2" && agent_uuid) {
-                query.$and = [
+                query.$and.push(
                     {
                         $or: [
                             { agent_uuid: { $nin: [agent_uuid] } },
@@ -446,28 +461,31 @@ export class AgentCallCenterService {
                             { agent_uuid: { $exists: false } }
                         ]
                     }
-                ];
+                );
+            }
+
+            let result: any = null;
+
+            /* ---------------------------------
+             * Priority Lead Assignment
+             * For specific tenant: f20b1a37-6234-4151-9a71-b2f99f1578fd
+             * --------------------------------- */
+            if (tenant_uuid === "f20b1a37-6234-4151-9a71-b2f99f1578fd" && agent_uuid) {
+                const priorityQuery = { ...query, assigned_agent_uuid: agent_uuid };
+                Logger.debug(`Searching for priority lead for agent ${agent_uuid}`);
+                result = await this.leads_in_queue.findOneAndUpdate(priorityQuery, { $set: { lead_sent: "0", updatedAt: new Date() } }, { sort: { _id: 1 }, returnDocument: "after" }).populate(populateFields).exec();
+
+                if (result) {
+                    Logger.debug(`Priority lead found and assigned: ${result._id}`);
+                }
             }
 
             /* ---------------------------------
-             * Atomic pickup (NO race condition)
+             * Normal Lead Assignment (Fallback)
              * --------------------------------- */
-            const result: any = await this.leads_in_queue
-                .findOneAndUpdate(
-                    query,
-                    {
-                        $set: {
-                            lead_sent: "0",
-                            updatedAt: new Date()
-                        }
-                    },
-                    {
-                        sort: { _id: 1 },
-                        returnDocument: "after"
-                    }
-                )
-                .populate(populateFields)
-                .exec();
+            if (!result) {
+                result = await this.leads_in_queue.findOneAndUpdate(query, { $set: { lead_sent: "0", updatedAt: new Date() } }, { sort: { _id: 1 }, returnDocument: "after" }).populate(populateFields).exec();
+            }
 
             /* ---------------------------------
              * No lead found
@@ -524,6 +542,7 @@ export class AgentCallCenterService {
                         phone_code: obj?.phone_code || "",
                         phone_number: obj?.phone_number || "",
                         user_uuid: obj?.user_uuid || "",
+                        assigned_agent_uuid: obj?.assigned_agent_uuid || "",
                         tenant_uuid: obj?.tenant_uuid || "",
                         tenant_name: obj?.tenant?.[0]?.tenant_name || "",
                         created_flag: obj?.created_flag || "",
@@ -896,6 +915,30 @@ export class AgentCallCenterService {
             Logger.error(`Lead not found ${lead_management_uuid}`, patchMethod);
         } else {
             Logger.debug(`Lead updated with campaign : ${campaign_uuid} & lead_management_uuid : ${lead_management_uuid}`);
+        }
+
+        // Get tenant company code
+        let tenantData: any = await this.tenant.findOne({ uuid: tenant_uuid }, { company_code: 1 }).lean();
+
+        // Delete lead from both collections for specific tenant
+        if (tenantData?.company_code === "vyapar") {
+            // Trigger leadSkip webhook
+            const webhookPayload = {
+                "Incoming Webhook Payload": [
+                    {
+                        agent_uuid: uuid,
+                        lead_uuid: lead_management_uuid,
+                        status: "Lead Skip By Agent"
+                    }
+                ]
+            };
+            await this.webhookService.triggerWebhook(tenant_uuid, "leadSkip", webhookPayload);
+
+            await Promise.all([
+                this.leads_in_queue.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec(),
+                this.lead_management.deleteOne({ lead_management_uuid, campaign_uuid, tenant_uuid }).exec()
+            ]);
+            Logger.debug(`Lead deleted from leads_in_queue and lead_management for tenant : ${tenant_uuid}`);
         }
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Lead skipped successfully");
     }
@@ -3850,15 +3893,15 @@ return uniqueIds;
                 { agent_uuid: uuid },   // ONLY this for uniqueness
                 {
                     $set: {
-                    campaign_uuid,
-                    tenant_uuid,
-                    domain,
-                    username,
-                    flag: "0"
+                        campaign_uuid,
+                        tenant_uuid,
+                        domain,
+                        username,
+                        flag: "0"
                     }
                 },
                 { upsert: true }
-                ).exec();
+            ).exec();
             // result = await this.auto_campaign_originate.updateOne({ agent_uuid: uuid, campaign_uuid, tenant_uuid, domain, username }, { flag: "0" }, { upsert: true }).exec();
 
             if (result.modifiedCount > 0) {
@@ -4194,10 +4237,14 @@ return uniqueIds;
     async getCampaignsForManagerAgent(assigned_manager_role, tenant_uuid, manager_uuid) {
         try {
             let allowedCampaignByTenant = await this.manager_role.findOne({ uuid: assigned_manager_role }, { role_name: 1, module_permission: 1, _id: 0 }).exec();
-            let outboundUUIDs = allowedCampaignByTenant?.module_permission["outbound-campaign"]["outbound-campaign-uuids"];
-            let inboundUUIDs = allowedCampaignByTenant?.module_permission["inbound-campaign"]["inbound-campaign-uuids"];
-            let blendedUUIDs = allowedCampaignByTenant?.module_permission["blended-campaign"]["blended-campaign-uuids"];
-            let finalArray = {};
+            let outboundUUIDs = allowedCampaignByTenant?.module_permission?.["outbound-campaign"]?.["outbound-campaign-uuids"] || [];
+            let inboundUUIDs = allowedCampaignByTenant?.module_permission?.["inbound-campaign"]?.["inbound-campaign-uuids"] || [];
+            let blendedUUIDs = allowedCampaignByTenant?.module_permission?.["blended-campaign"]?.["blended-campaign-uuids"] || [];
+            let finalArray = {
+                outbound_campaign: [],
+                inbound_campaign: [],
+                blended_campaign: []
+            };
             finalArray["outbound_campaign"] = await this.outbound_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: outboundUUIDs } }] }).exec();
             finalArray["inbound_campaign"] = await this.inbound_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: inboundUUIDs } }] }).exec();
             finalArray["blended_campaign"] = await this.blended_campaign.find({ $or: [{ tenant_uuid: manager_uuid }, { uuid: { $in: blendedUUIDs } }] }).exec();
@@ -4205,6 +4252,11 @@ return uniqueIds;
             return finalArray;
         } catch (error) {
             Logger.error(`Error in catch block ==> getCampaignsForManagerAgent()`, error.message);
+            return {
+                outbound_campaign: [],
+                inbound_campaign: [],
+                blended_campaign: []
+            };
         }
     }
 

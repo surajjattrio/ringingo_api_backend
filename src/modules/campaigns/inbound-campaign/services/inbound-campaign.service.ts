@@ -18,6 +18,8 @@ import { OutboundCampaignDocument, OutboundCampaignSchema } from "../../outbound
 import { AgentCampaignLoginDocument, AgentCampaignLoginSchema } from 'src/modules/call-center/schema/agent-campaign-login.schema';
 import { ExtensionDocument, ExtensionSchema } from 'src/modules/extension/schema/extension.schema';
 import { TenantDocument, TenantSchema } from 'src/modules/tenant/schema/tenant.schema';
+import { AgentLiveReportDocument, AgentLiveReportSchema } from 'src/modules/call-center/schema/agent-live-report.schema';
+import { SocketService } from 'src/modules/websockets/websockets.gateway';
 
 
 @Injectable()
@@ -43,8 +45,10 @@ export class InboundCampaignService {
         @InjectModel(AgentCampaignLoginSchema.name) private readonly agent_campaign_login: Model<AgentCampaignLoginDocument>,
         @InjectModel(ExtensionSchema.name) private readonly extension: Model<ExtensionDocument>,
         @InjectModel(TenantSchema.name) private readonly tenant: Model<TenantDocument>,
+        @InjectModel(AgentLiveReportSchema.name) private readonly agent_live_report: Model<AgentLiveReportDocument>,
         private readonly commonDbFn: CommonDBFunctions,
-        private readonly commonFn: CommonFunctions
+        private readonly commonFn: CommonFunctions,
+        private readonly socketService: SocketService
     ) { }
 
     /*
@@ -147,7 +151,28 @@ export class InboundCampaignService {
         }
         createInboundCampaignDto.campaign_type = "1";
         createInboundCampaignDto.created_flag = role == "tenant" ? "1" : "2";
-        return this.commonDbFn.update(this.inbound_campaign, uuid, createInboundCampaignDto, JSON.stringify(logMessages));
+        const result = await this.commonDbFn.update(this.inbound_campaign, uuid, createInboundCampaignDto, JSON.stringify(logMessages));
+        if (result && result.statusCode === HttpStatus.OK) {
+            try {
+                const loggedInAgents = await this.agent_live_report.find({
+                    campaign_uuid: uuid,
+                    status: { $ne: "6" }
+                }).exec();
+                
+                for (const agentLogin of loggedInAgents) {
+                    Logger.debug(`Emitting CAMPAIGN_UPDATED event to agent: ${agentLogin.agent_uuid}`);
+                    this.socketService.emitToAgent(agentLogin.agent_uuid as string, {
+                        type: 'CAMPAIGN_UPDATED',
+                        payload: {
+                            campaign_uuid: uuid
+                        }
+                    });
+                }
+            } catch (err) {
+                Logger.error(`Error notifying agents of campaign update: ${err.message}`);
+            }
+        }
+        return result;
     }
 
     /*

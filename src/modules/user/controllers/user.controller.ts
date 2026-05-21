@@ -7,6 +7,7 @@ import { UserService } from "../services/user.service";
 import { LoggedInUserDto } from "../dto/logged-in-user.dto";
 import { Public } from "src/global_constant";
 import { LogoutUserDto } from "../dto/logout-user.dto";
+import { UserRabbitmqService } from "../services/user-rabbitmq.service";
 
 @Controller("user")
 
@@ -20,7 +21,10 @@ export class UserController {
     @return : Object[user] 
     */
 
-    constructor(private readonly user: UserService) { }
+    constructor(
+        private readonly user: UserService,
+        private readonly userRabbitmqService: UserRabbitmqService
+    ) { }
 
     @Post()
     @postDecoraters("User created successfully", "Create a new user")
@@ -223,6 +227,24 @@ export class UserController {
     loginzohoUser ( @Param( 'zoho_user_id' ) zoho_user_id: string ) {
         console.log( "DATA COMING" )
         return this.user.loginzohoUser( zoho_user_id );
+    }
+
+    @Public()
+    @Get("/test/rabbitmq")
+    @getDecoraters("Test RabbitMQ health successfully", "Test RabbitMQ health status")
+    async testRabbitMQ() {
+        try {
+            const health = this.userRabbitmqService.checkHealth();
+            return { success: health.status === 'up', ...health };
+        } catch (error) {
+            return { success: false, message: 'Failed to check health', error: error.message };
+        }
+    }
+
+    @Post(":uuid/sync-waba")
+    @postDecoraters("User sync initiated successfully", "Initiate manual WABA sync for user")
+    syncWaba(@Param('uuid', new ParseUUIDPipe({ version: '4' })) id: string) {
+        return this.user.syncWaba(id);
     }
 
 }

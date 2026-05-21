@@ -9,3 +9,4 @@ package-lock.json
 *.zip
 .agents
 yarn.lock
+logs/

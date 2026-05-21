@@ -50,10 +50,11 @@ export class CreateTenantDto {
     @ValidateIf(o => o.email !== '')
     @IsEmail({}, { message: 'Invalid email' })
     email: string
-
-
-
-
+    @ApiProperty()
+    @IsOptional()
+    @ValidateIf(o => o.mobile_number && o.mobile_number !== '')
+    @IsNumberString({}, { message: 'Invalid mobile number' })
+    mobile_number: string
     @ApiProperty()
     @ValidateIf(val => val.outgoing_rule_uuid != "")
     @IsUUID()

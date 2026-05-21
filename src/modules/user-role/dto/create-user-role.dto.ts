@@ -97,4 +97,14 @@ export class CreateUserRoleDto {
     @IsOptional()
     @IsIn( [ "0", "1" ] )
     agent_script: string
+
+    @ApiProperty( { description: '0 - Enable | 1 - Disable', default: "1" } )
+    @IsOptional()
+    @IsNumberString()
+    @IsIn( [ "0", "1" ] )
+    auto_logout: string
+
+    @ApiProperty()
+    @IsOptional()
+    idle_timeout: string
 }

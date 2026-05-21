@@ -13,6 +13,8 @@ import { ManagerDocument, ManagerSchema } from "src/modules/manager/schema/manag
 import { LicenseDocument, LicenseSchema } from "src/modules/master-admin/schema/license.schema";
 import { ExtensionService } from "src/modules/extension/services/extension.service";
 import { CreateExtensionDto } from "src/modules/extension/dto/create-extension-dto";
+import { UserRabbitmqService } from "./user-rabbitmq.service";
+import { RolesDocument, RolesSchema } from "src/modules/roles/schema/roles-schema";
 
 @Injectable()
 
@@ -32,12 +34,29 @@ export class UserService {
         @InjectModel(TenantSchema.name) private readonly tenant: Model<TenantDocument>,
         @InjectModel(ManagerSchema.name) private readonly manager: Model<ManagerDocument>,
         @InjectModel(LicenseSchema.name) private license: Model<LicenseDocument>,
+        @InjectModel(RolesSchema.name) private readonly rolesModel: Model<RolesDocument>,
         private readonly commonDbFn: CommonDBFunctions,
         private readonly commonFn: CommonFunctions,
         @Inject(forwardRef(() => ExtensionService))
-        private readonly extensionService: ExtensionService
+        private readonly extensionService: ExtensionService,
+        private readonly userRabbitmqService: UserRabbitmqService
 
     ) { }
+
+    private async checkTenantWhatsappPermission(tenant_uuid: any): Promise<boolean> {
+        if (!tenant_uuid) return false;
+        try {
+            const tenantData = await this.tenant.findOne({ uuid: tenant_uuid }, { role_uuid: 1, _id: 0 }).exec();
+            if (!tenantData?.role_uuid) return false;
+
+            const role = await this.rolesModel.findOne({ uuid: tenantData.role_uuid.toString() }).exec();
+            const whatsappPermission = role?.module_permission?.["messaging"]?.["whatsapp"];
+            return Number(whatsappPermission) > 0;
+        } catch (error) {
+            Logger.error(`Error checking tenant WhatsApp permission: ${error.message}`, 'UserService');
+            return false;
+        }
+    }
 
     /*
     @Usage                 : First it will check whether given domain exist or not , if not then new tenant will be created else it will throw error
@@ -206,6 +225,17 @@ export class UserService {
                     console.error("Error creating SIP device:", err);
                 }
             }
+
+            // Emit RabbitMQ event
+            if (userResult.statusCode === 201) {
+                const userUuid = userResult.message?._doc?.uuid || userResult.data?.uuid;
+                if (await this.checkTenantWhatsappPermission(createUserDto.tenant_uuid)) {
+                    this.userRabbitmqService.publish('user.created', { ...createUserDto, uuid: userUuid });
+                } else {
+                    Logger.debug(`Skipping RabbitMQ publish for user.created: WhatsApp permission not enabled for tenant ${createUserDto.tenant_uuid}`);
+                }
+            }
+
             return userResult;
         } else {
             // Error fetching license details
@@ -223,7 +253,14 @@ export class UserService {
     async findAll(queryParams) {
         let searchFields = ["username", "recording", "email"];
         let populateFields = [{ path: "user_roles", select: "name" }, { path: "tenant", select: 'tenant_name username' }, { path: "user_group", select: 'name' }, { path: "default_extension_detail", select: "username -_id -uuid" }];
-        return this.commonDbFn.findAllWithPagination(this.user, queryParams, searchFields, populateFields, { status: 1, _id: -1 });
+
+        if (queryParams.webhook === 'true') {
+            let result = await this.user.find({ tenant_uuid: queryParams.tenant_uuid }, { email: 1, username: 1, fullname: 1, uuid: 1, createdAt: 1, status: 1, _id: 0 }).exec();
+            const users = Array.isArray(result) ? result : (result as any)?.data || [];
+            return { statusCode: HttpStatus.OK, data: users.map((user: any) => ({ agentName: user.fullname, email: user.email, username: user.username, agentId: user.uuid, status: user.status === '1' ? 'Inactive' : 'Active' })), message: "Users fetched successfully" };
+        } else {
+            return this.commonDbFn.findAllWithPagination(this.user, queryParams, searchFields, populateFields, { status: 1, _id: -1 });
+        }
     }
 
     /*
@@ -284,12 +321,29 @@ export class UserService {
     */
 
     async findOne(uuid: string) {
-        const user = await this.user.findOne({ uuid }).exec();
+        let user: any = await this.user.findOne({ uuid }).exec();
         if (user == null) {
-            Logger.error(`User not found by uuid : ${uuid} \n`, getMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "User not found" })
+            Logger.error(`User not found by uuid : ${uuid} \n`, getMethod);
+            throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "User not found" });
         }
         Logger.debug(`User success fetched by uuid : ${uuid} \n`);
+
+        // Convert to plain object to add dynamic fields like tenant_role and whatspermissio
+        user = user.toObject();
+
         user.password = await this.commonFn.decode(user.password);
+
+        // Populate Tenant Role and check WhatsApp permission
+        if (user.tenant_uuid) {
+            const tenant = await this.tenant.findOne({ uuid: user.tenant_uuid }, { role_uuid: 1, _id: 0 }).exec();
+            if (tenant?.role_uuid) {
+                const role = await this.rolesModel.findOne({ uuid: tenant.role_uuid }).exec();
+                if (role) {
+                    user.tenant_role = role;
+                }
+            }
+        }
+
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, user);
     }
 
@@ -341,6 +395,14 @@ export class UserService {
         }
         let response = await this.commonDbFn.update(this.user, uuid, createUserDto, JSON.stringify(logMessages));
 
+        if (response.statusCode == 200) {
+            if (await this.checkTenantWhatsappPermission(getUserData?.tenant_uuid)) {
+                this.userRabbitmqService.publish('user.updated', { ...createUserDto, uuid });
+            } else {
+                Logger.debug(`Skipping RabbitMQ publish for user.updated: WhatsApp permission not enabled for tenant ${getUserData?.tenant_uuid}`);
+            }
+        }
+
         if (response.statusCode == 404) { return response; }
 
         //Update is_assigned to 0[Because extension is now bind with this user, no need to show that extension to other users under same tenant]
@@ -382,7 +444,19 @@ export class UserService {
         if (request == "logout") {
             body.callkit_token = "";
         }
-        return this.commonDbFn.update(this.user, uuid, body, JSON.stringify(logMessages));
+        
+        const response = await this.commonDbFn.update(this.user, uuid, body, JSON.stringify(logMessages));
+
+        if (response.statusCode == 200) {
+            const getUserData = await this.user.findOne({ uuid }, { tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+            if (await this.checkTenantWhatsappPermission(getUserData?.tenant_uuid)) {
+                this.userRabbitmqService.publish('user.updated', { ...body, uuid, vendor_uid: (getUserData as any)?.vendor_uid });
+            } else {
+                Logger.debug(`Skipping RabbitMQ publish for user.updated (patch): WhatsApp permission not enabled for tenant ${getUserData?.tenant_uuid}`);
+            }
+        }
+
+        return response;
     }
 
     /*
@@ -408,7 +482,24 @@ export class UserService {
             logErrorMsg: `User not exist by uuid : ${uuid} \n`,
             logSuccessMsg: `User deleted successfully by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.delete(this.user, { uuid }, JSON.stringify(logMessages));
+
+        const getUserData = await this.user.findOne({ uuid }, { team_user_uid:1, tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+        const response = await this.commonDbFn.delete(this.user, { uuid }, JSON.stringify(logMessages));
+
+        if (response?.statusCode == 200) {
+            if (await this.checkTenantWhatsappPermission(getUserData?.tenant_uuid)) {
+                this.userRabbitmqService.publish('user.deleted', { 
+                    uuid, 
+                    vendor_uid: (getUserData as any)?.vendor_uid,
+                    tenant_uuid: getUserData?.tenant_uuid ,
+                    team_user_uid: getUserData?.team_user_uid
+                });
+            } else {
+                Logger.debug(`Skipping RabbitMQ publish for user.deleted: WhatsApp permission not enabled for tenant ${getUserData?.tenant_uuid}`);
+            }
+        }
+
+        return response;
     }
 
     /*
@@ -514,6 +605,25 @@ export class UserService {
             domain: tenant.domain,
             allextension: filteredExtensions,
         };
+    }
+
+    async syncWaba(uuid: string) {
+        const user = await this.user.findOne({ uuid }).exec();
+        if (!user) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, "User not found");
+        }
+
+        if (await this.checkTenantWhatsappPermission(user.tenant_uuid)) {
+            try {
+                await this.userRabbitmqService.syncManual('user.created', user);
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "User synced successfully with external application");
+            } catch (error) {
+                const errorMessage = error.response?.data?.message || error.message || "Unknown error occurred during sync";
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, `Sync failed: ${errorMessage}`);
+            }
+        } else {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.FORBIDDEN, "WhatsApp permission not enabled for this tenant");
+        }
     }
 
 }
