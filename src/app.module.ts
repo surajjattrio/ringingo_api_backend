@@ -103,6 +103,7 @@ import { ActivityLogInterceptor } from "./interceptor/activity-log.interceptor";
 import { WebhookModule } from "./modules/webhook/webhook.module";
 import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
 import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-dashboard.module";
+import { InboundCallDebugModule } from "./modules/inbound-call-debug/inbound-call-debug.module";
 
 @Module({
   imports: [
@@ -204,6 +205,7 @@ import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-d
     WebhookModule,
     VoiceAlertModule,
     RealtimeDashboardModule,
+    InboundCallDebugModule,
   ],
   controllers: [],
   providers: [
