@@ -954,6 +954,30 @@ export class CommonFunctions {
         }
     }
 
+    /**
+     * Run a single FreeSWITCH API command and return the response body as text (debug / tooling).
+     */
+    fsApiRaw ( cmd: string ): Promise<string> {
+        const self = this;
+        return new Promise( function ( resolve ) {
+            if ( !self.fsConnection ) {
+                resolve( "FS connection not initialized" );
+                return;
+            }
+            self.fsConnection.api( cmd, function ( res: any ) {
+                let body: string;
+                if ( res && typeof res.getBody === "function" ) {
+                    body = res.getBody();
+                } else if ( res && res.body !== undefined ) {
+                    body = res.body;
+                } else {
+                    body = JSON.stringify( res ?? {} );
+                }
+                resolve( typeof body === "string" ? body : String( body ) );
+            } );
+        } );
+    }
+
     /*
     @Usage               : To kill uuid in freeswitch
     */
