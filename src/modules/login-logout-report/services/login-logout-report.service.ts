@@ -601,7 +601,10 @@ export class LoginlogoutreportService {
 
           for (i = 0; i < len; i++) {
                if (login_state == 'login_count') {
-                    if (alldata[i].login_status == '0' && alldata[i].breakcode_uuid == undefined) {
+                    // ✅ FIX: breakcode_uuid is stored as "" on real login events, not undefined.
+                    // "" == undefined → false, so entries with empty breakcode_uuid were missed.
+                    // Use !breakcode_uuid (falsy for undefined, null, AND "").
+                    if (alldata[i].login_status == '0' && !alldata[i].breakcode_uuid) {
                          count = count + 1;
                          // console.log( 'login_count', count )
                     }
@@ -804,6 +807,7 @@ export class LoginlogoutreportService {
                                    // Information data
                                    info_time_stamp: info.date_time ? moment.tz(info.date_time, timezone).format("HH:mm") : "",
                                    info_event: this.getEventStatus(info),
+                                   info_sub_event: this.getSubEventStatus(info),
                                    info_duration: this.getEventDuration(info, index, infoData) || ""
                               });
                          });
@@ -822,6 +826,7 @@ export class LoginlogoutreportService {
                               net_login: summary.net_login,
                               info_time_stamp: "",
                               info_event: "",
+                              info_sub_event: "",
                               info_duration: ""
                          });
                     }
@@ -846,7 +851,19 @@ export class LoginlogoutreportService {
           }
           return "";
      }
-
+     
+     getSubEventStatus(rowData) {
+          if (rowData.login_status === "3") {
+               return "Pause End";
+          } else if (rowData.login_status === "4") {
+               return "Pause Start";
+          } else if (rowData.login_status === "5") {
+               return "ACW Start";
+          } else if (rowData.login_status === "6") {
+               return "ACW End";
+          }
+          return "";
+     }
      getDuration(startDate, endDate) {
           if (!startDate || !endDate) return "";
 
@@ -873,7 +890,22 @@ export class LoginlogoutreportService {
           ) {
                return this.getDuration(infoData[index - 1]?.date_time, rowData?.date_time);
           } else if (rowData.login_status === "2") {
-               return this.getDuration(infoData[0]?.date_time, rowData?.date_time);
+               // return this.getDuration(infoData[0]?.date_time, rowData?.date_time);
+               const firstLogin = infoData.find(d => d.login_status === "0" && !d.breakcode?.length);
+               const startTime = firstLogin ? firstLogin.date_time : infoData[0]?.date_time;
+               return this.getDuration(startTime, rowData?.date_time);
+          }else if (rowData.login_status === "3") {
+               for (let i = index - 1; i >= 0; i--) {
+                    if (infoData[i].login_status === "4") {
+                         return this.getDuration(infoData[i].date_time, rowData.date_time);
+                    }
+               }
+          } else if (rowData.login_status === "6") {
+               for (let i = index - 1; i >= 0; i--) {
+                    if (infoData[i].login_status === "5") {
+                         return this.getDuration(infoData[i].date_time, rowData.date_time);
+                    }
+               }
           }
           return "";
      }
