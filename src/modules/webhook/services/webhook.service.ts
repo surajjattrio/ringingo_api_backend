@@ -311,7 +311,7 @@ export class WebhookService {
             }
 
             const { headers = {}, bearer_token } = webhookConfig;
-            
+
             // Build the final headers
             const requestHeaders: Record<string, string> = {
                 "Content-Type": "application/json"
@@ -344,9 +344,9 @@ export class WebhookService {
     private async executeWebhookRequest(webhookConfig: any, headers: any, data: any) {
         const { uuid: webhookUuid, name: webhookName, webhook_url: url, method = "POST", timeout = 30000, max_retries = 1, retry_delay = 2000 } = webhookConfig;
         const payloadItem = data?.['Incoming Webhook Payload']?.[0];
-        const leadUuid = payloadItem?.lead_uuid || null;
+        const leadUuid = data?.lead_uuid || payloadItem?.lead_uuid || null;
         let attempt = 0;
-        
+
         while (attempt <= max_retries) {
             const startTime = Date.now();
             try {
@@ -358,11 +358,11 @@ export class WebhookService {
                     data,
                     timeout
                 };
-                
+
                 const response = await firstValueFrom(this.http.request(config));
                 const duration = Date.now() - startTime;
                 Logger.debug(`Webhook executed successfully. Status: ${response.status}`);
-                
+
                 await this.webhookDeliveryLogModel.create({
                     webhookUuid,
                     webhookName,
@@ -374,8 +374,8 @@ export class WebhookService {
                     attempt: attempt + 1,
                     duration
                 });
-                
-                return response.data;   
+
+                return response.data;
             } catch (error) {
                 const duration = Date.now() - startTime;
                 const statusCode = error.response?.status || 500;
@@ -396,11 +396,11 @@ export class WebhookService {
 
                 attempt++;
                 Logger.error(`Webhook attempt ${attempt} failed: ${error.message}`);
-                
+
                 if (attempt > max_retries) {
                     throw new Error(`Max retries reached. Webhook failed: ${error.message}`);
                 }
-                
+
                 await new Promise(resolve => setTimeout(resolve, retry_delay));
             }
         }

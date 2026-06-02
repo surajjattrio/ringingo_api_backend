@@ -437,12 +437,12 @@ export class AgentCallCenterService {
                         ]
                     },
                     {
-                $or: [
-                    // Retry leads (time passed)
-                    { resend_lead_time: { $lte: new Date() } },
-                    // Fresh leads
-                    { resend_lead_time: { $exists: false } },
-                    { resend_lead_time: null }
+                        $or: [
+                            // Retry leads (time passed)
+                            { resend_lead_time: { $lte: new Date() } },
+                            // Fresh leads
+                            { resend_lead_time: { $exists: false } },
+                            { resend_lead_time: null }
                         ]
                     }
                 ]
@@ -922,15 +922,23 @@ export class AgentCallCenterService {
 
         // Delete lead from both collections for specific tenant
         if (tenantData?.company_code === "vyapar") {
+            // Fetch lead management details to get custom_fields
+            const leadDataDoc: any = await this.lead_management.findOne(
+                { lead_management_uuid, campaign_uuid, tenant_uuid },
+                { custom_fields: 1 }
+            ).lean();
+
+            const customFields = leadDataDoc?.custom_fields || {};
             // Trigger leadSkip webhook
             const webhookPayload = {
-                "Incoming Webhook Payload": [
-                    {
-                        agent_uuid: uuid,
-                        lead_uuid: lead_management_uuid,
-                        status: "Lead Skip By Agent"
-                    }
-                ]
+                // "Incoming Webhook Payload": [
+                //     {
+                agent_uuid: uuid,
+                lead_uuid: lead_management_uuid,
+                status: "Lead Skip By Agent",
+                custom_fields: customFields
+                //     }
+                // ]
             };
             await this.webhookService.triggerWebhook(tenant_uuid, "leadSkip", webhookPayload);
 
