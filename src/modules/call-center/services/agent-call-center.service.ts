@@ -1978,6 +1978,7 @@ return uniqueIds;
                 agentLoginLogoutReportDto.date_time = formattedDateString;
                 agentLoginLogoutReportDto.createdAt = utcDateString;
                 // agentLoginLogoutReportDto.updatedAt = utcDateString;
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
 
                 logMessages = { logSuccessMsg: `Agent logout entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
                 delete agentLoginLogoutReportDto.createdAt;
@@ -2052,6 +2053,26 @@ return uniqueIds;
 
 
 
+
+            } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "0" && login_status == '0' && agentLoginLogoutReportDto.breakcode_uuid != '') {
+                let currentDateTime = new Date();
+                let manualLogoutEntry = new Date(currentDateTime.getTime() - 5000);
+                console.log(manualLogoutEntry);
+
+                let logMessages = { logSuccessMsg: `Agent login entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                agentLoginLogoutReportDto.login_status = "1";
+                agentLoginLogoutReportDto.createdAt = manualLogoutEntry;
+
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+
+                //adesh login entry first
+                logMessages = { logSuccessMsg: `Agent logout entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                agentLoginLogoutReportDto.login_status = "0";
+                delete agentLoginLogoutReportDto.createdAt;
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Agent entry added successfully");
 
             } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "0" && login_status == '0') {
                 // let manualLogoutEntry = new Date( currentDateTime.setMinutes( currentDateTime.getSeconds() - 5 ) );
@@ -2211,6 +2232,104 @@ return uniqueIds;
 
 
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Agent entry added successfully");
+            } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "0" && getPreviousEntryOfAgent.date != agentLoginLogoutReportDto.date && agentLoginLogoutReportDto.breakcode_uuid != undefined) {
+                const previousDay = new Date(currentDateTime);
+                previousDay.setDate(currentDateTime.getDate() - 1);
+                previousDay.setHours(23, 59, 59, 999);
+                console.log(previousDay);
+                const utcDateString = previousDay.toISOString();
+                console.log(utcDateString);
+                const formattedDateString = utcDateString.slice(0, -1) + "99Z";
+                console.log(formattedDateString);
+                // const currentstartdate = new Date( agentLoginLogoutReportDto.date_time );
+                // console.log( currentstartdate );
+                // currentstartdate.setDate( currentstartdate.getDate() );
+                // console.log( currentstartdate );
+                // currentstartdate.setHours( 0, 0, 0, 0 );
+                // console.log( currentstartdate )
+                const dateString = agentLoginLogoutReportDto.date_time;
+                const timestamp = Date.parse(dateString);
+                const currentstartdate = new Date(timestamp);
+                currentstartdate.setHours(0, 0, 0, 0); // Set time to start of the day (00:00:00)
+                const startutcDateString = currentstartdate.toISOString();
+                const startformattedDateString = startutcDateString.slice(0, -1) + "99Z";
+                console.log(startformattedDateString);
+
+                let logMessages = { logSuccessMsg: `Agent logout entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                agentLoginLogoutReportDto.login_status = "2";
+                let temp_breakcode_uuid = agentLoginLogoutReportDto.breakcode_uuid;
+                delete agentLoginLogoutReportDto.breakcode_uuid;
+                agentLoginLogoutReportDto.date = getPreviousEntryOfAgent.date.toString();
+                agentLoginLogoutReportDto.date_time = formattedDateString;
+                agentLoginLogoutReportDto.createdAt = utcDateString;
+                // agentLoginLogoutReportDto.updatedAt = utcDateString;
+
+                // agentLoginLogoutReportDto.createdAt = manualLogoutEntry;
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+                logMessages = { logSuccessMsg: `Agent login entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                agentLoginLogoutReportDto.login_status = "0";
+                agentLoginLogoutReportDto.breakcode_uuid = temp_breakcode_uuid;
+                agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
+                agentLoginLogoutReportDto.date_time = startformattedDateString;
+                agentLoginLogoutReportDto.createdAt = startutcDateString;
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+
+                logMessages = { logSuccessMsg: `Agent logout entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                delete agentLoginLogoutReportDto.createdAt;
+                agentLoginLogoutReportDto.login_status = login_status;
+                agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
+                agentLoginLogoutReportDto.date_time = utCDate;
+
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+            } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "2" && agentLoginLogoutReportDto.breakcode_uuid != "") {
+                const dateString = new Date(agentLoginLogoutReportDto.date_time);
+                const currentstartdate = new Date(dateString.getTime() - 10000);
+                const startutcDateString = currentstartdate.toISOString();
+                const startformattedDateString = startutcDateString.slice(0, -1) + "99Z";
+                // console.log(startformattedDateString);
+
+                const secondDatestring = new Date(agentLoginLogoutReportDto.date_time);
+                const secondCurrentstartdate = new Date(secondDatestring.getTime() - 5000);
+                const secondStartutcDateString = secondCurrentstartdate.toISOString();
+                const secondStartformattedDateString = secondStartutcDateString.slice(0, -1) + "99Z";
+                // console.log(secondStartformattedDateString);
+
+                let logMessages = { logSuccessMsg: `Agent login entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                agentLoginLogoutReportDto.login_status = "0";
+                agentLoginLogoutReportDto.date = getPreviousEntryOfAgent.date.toString();
+                agentLoginLogoutReportDto.date_time = startformattedDateString;
+                agentLoginLogoutReportDto.createdAt = startutcDateString;
+                let temp_breakcode_uuid = agentLoginLogoutReportDto.breakcode_uuid;
+                delete agentLoginLogoutReportDto.breakcode_uuid;
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+                if (login_status == "0") {
+                    let logMessages = { logSuccessMsg: `Agent login entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                    agentLoginLogoutReportDto.login_status = "1";
+                    agentLoginLogoutReportDto.date = getPreviousEntryOfAgent.date.toString();
+                    agentLoginLogoutReportDto.date_time = secondStartformattedDateString;
+                    agentLoginLogoutReportDto.createdAt = secondStartutcDateString;
+                    agentLoginLogoutReportDto.breakcode_uuid = temp_breakcode_uuid;
+                    this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+                }
+                logMessages = { logSuccessMsg: `Agent logout entry was missing , newly entry added by subtracting 1 minute from current time successfully` };
+                delete agentLoginLogoutReportDto.createdAt;
+                agentLoginLogoutReportDto.login_status = login_status;
+                agentLoginLogoutReportDto.breakcode_uuid = temp_breakcode_uuid;
+                agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
+                agentLoginLogoutReportDto.date_time = utCDate;
+
+                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+
+            } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "2" && login_status == '2') {
+                await this.agent_login_logout_report.findOneAndUpdate(
+                    { agent_uuid: uuid },
+                    { $set: agentLoginLogoutReportDto },
+                    { sort: { _id: -1 } }
+                ).exec();
             } else {
                 let current_break_name = "";
                 let current_break_duration = "";
