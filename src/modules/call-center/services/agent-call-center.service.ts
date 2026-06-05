@@ -2282,7 +2282,7 @@ return uniqueIds;
                 agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
                 agentLoginLogoutReportDto.date_time = utCDate;
 
-                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+                return this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
 
             } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "2" && agentLoginLogoutReportDto.breakcode_uuid != "") {
                 const dateString = new Date(agentLoginLogoutReportDto.date_time);
@@ -2322,14 +2322,15 @@ return uniqueIds;
                 agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
                 agentLoginLogoutReportDto.date_time = utCDate;
 
-                this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
+                return this.commonDbFn.insert(this.agent_login_logout_report, agentLoginLogoutReportDto, JSON.stringify(logMessages));
 
             } else if (getPreviousEntryOfAgent != null && getPreviousEntryOfAgent.login_status == "2" && login_status == '2') {
-                await this.agent_login_logout_report.findOneAndUpdate(
+                let result = await this.agent_login_logout_report.findOneAndUpdate(
                     { agent_uuid: uuid },
                     { $set: agentLoginLogoutReportDto },
                     { sort: { _id: -1 } }
                 ).exec();
+                return { statusCode: 200, data: result, message: "Agent entry updated successfully" }
             } else {
                 let current_break_name = "";
                 let current_break_duration = "";
