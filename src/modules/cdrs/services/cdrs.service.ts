@@ -162,11 +162,23 @@ export class CdrsService {
             }
 
             // ✅ Exact match for caller & destination number
+            // if (key === "destination_number" || key === "caller_id_number") {
+            //     obj = { [key]: filedValue };
+            //     where.push(obj);
+
+            //     objWC = { [key]: filedValue };
+            //     whereClause.push(objWC);
+
+            //     continue;
+            // }
+
+            // ✅ Exact match for caller & destination number — support $or search-- for showing filter for teh swapped value
             if (key === "destination_number" || key === "caller_id_number") {
-                obj = { [key]: filedValue };
+                // Search in BOTH fields so inbound/outbound display swap doesn't break filtering
+                obj = { $or: [{ caller_id_number: filedValue }, { destination_number: filedValue }] };
                 where.push(obj);
 
-                objWC = { [key]: filedValue };
+                objWC = { $or: [{ caller_id_number: filedValue }, { destination_number: filedValue }] };
                 whereClause.push(objWC);
 
                 continue;
@@ -420,12 +432,44 @@ export class CdrsService {
                 const rawHoldTime = Number.parseInt(data.hold_time) || 0;
                 const rawWaitingTime = Number.parseInt(data.waiting_time) || 0;
                 const rawRingingTime = Number.parseInt(data.ringing_time) || 0;
-                const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                // const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                let computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                if (data.direction === "outbound" && rawBillsecond === 0) {
+                    computedTotalDuration = Math.max(Number.parseInt(data.total_duration) || 0, computedTotalDuration);
+                }
+                const raw_Call_status = data.actual_talktime || 0;
                 data.billsecond = this.secondsToHHMMSS(rawBillsecond);
                 data.total_duration = this.secondsToHHMMSS(computedTotalDuration);
                 data.hold_time = this.secondsToHHMMSS(rawHoldTime);
                 data.waiting_time = this.secondsToHHMMSS(rawWaitingTime);
                 data.ringing_time = this.secondsToHHMMSS(rawRingingTime);
+
+                // ✅ Add Actual Talk Time
+                const direction = String(data.direction || "").toLowerCase();
+                const dbActualTalkTime = data.actual_talktime;
+                if (direction === "inbound") {
+                    data.actual_talktime = this.secondsToHHMMSS(dbActualTalkTime);
+                } else {
+                    if (String(data.dial_method) === "1") {
+                        if (data.user_uuid && String(data.user_uuid).trim() !== "") {
+                            data.actual_talktime = data.billsecond;
+                        } else {
+                            data.actual_talktime = this.secondsToHHMMSS(0);
+                        }
+                    } else {
+                        data.actual_talktime = data.billsecond;
+                    }
+                }
+                data.call_status =
+                    data.direction === "inbound"
+                        ? Number(raw_Call_status) > 0
+                            ? "Connected"
+                            : "Abandoned"
+                        : data.direction === "outbound"
+                            ? data.actual_talktime !== "00:00:00"
+                                ? "Connected"
+                                : "Not Connected"
+                            : "Not Connected";
 
                 return data; // ✅ important
             });
@@ -491,7 +535,6 @@ export class CdrsService {
             }
         }
 
-        ``
         // populate more fields
         let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: "ivr", select: 'name uuid -_id' }, { path: "ringgroup", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }, { path: 'telecom_circle', select: 'name uuid -_id' }];
 
@@ -543,7 +586,17 @@ export class CdrsService {
                 const rawHoldTime = Number.parseInt(item?.hold_time) || 0;
                 const rawWaitingTime = Number.parseInt(item?.waiting_time) || 0;
                 const rawRingingTime = Number.parseInt(item?.ringing_time) || 0;
-                const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                // const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                let computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                if (item.direction === "outbound" && rawBillsecond === 0) {
+                    computedTotalDuration = Math.max(Number.parseInt(item.total_duration) || 0, computedTotalDuration);
+                }
+                const actual_talktime = (item?.direction === "inbound")
+                    ? this.secondsToHHMMSS(item?.actual_talktime)
+                    : (String(item?.dial_method) === "1"
+                        ? (item?.user_uuid && String(item?.user_uuid).trim() !== "" ? this.secondsToHHMMSS(rawBillsecond) : this.secondsToHHMMSS(0))
+                        : this.secondsToHHMMSS(rawBillsecond));
+
                 return {
                     ...item,
                     // billsecond: item?.direction == "outbound" ? this.secondsToHHMMSS(item?.billsecond) : this.secondsToHHMMSS(Number.parseInt(item?.total_duration) - Number.parseInt(item?.waiting_time)),
@@ -552,6 +605,17 @@ export class CdrsService {
                     // waiting_time: this.secondsToHHMMSS(await item.waiting_time),
                     // ringing_time: this.secondsToHHMMSS(await item.ringing_time),
                     billsecond: this.secondsToHHMMSS(rawBillsecond),
+                    actual_talktime: actual_talktime,
+                    call_status:
+                        item.direction === "inbound"
+                            ? Number(item?.actual_talktime) > 0
+                                ? "Connected"
+                                : "Abandoned"
+                            : item.direction === "outbound"
+                                ? actual_talktime !== "00:00:00"
+                                    ? "Connected"
+                                    : "Not Connected"
+                                : "Not Connected",
                     total_duration: this.secondsToHHMMSS(computedTotalDuration),
                     hold_time: this.secondsToHHMMSS(rawHoldTime),
                     waiting_time: this.secondsToHHMMSS(rawWaitingTime),
@@ -560,7 +624,7 @@ export class CdrsService {
             })
         );
 
-        // console.log("dattttttttttt", cdrsData);
+        console.log("dattttttttttt", cdrsData);
         return cdrsData;
 
     }
@@ -752,7 +816,7 @@ export class CdrsService {
 
             // return result;
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, result);
-        } catch (error) {
+        } catch (error: any) {
             throw new Error(`Error fetching IVR, Ring Group, and Call Queue data: ${error.message}`);
         }
     }
@@ -1136,19 +1200,19 @@ export class CdrsService {
             // ── CSV headers ──────────────────────────────────────────
             let CSV_HEADERS = [
                 'Start Date', 'End Date', 'Caller Id Number', 'Phone Number',
-                'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Answer Time',
-                'Hold Time', 'Waiting Time', 'Ringing Time', 'Campaign',
+                'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Answer Time', 'Actual Talk Time',
+                'Call Status', 'Hold Time', 'Waiting Time', 'Ringing Time', 'Campaign',
                 'Lead Group Name', 'Dial Method', 'Disconnected By',
                 'Disposition', 'Sub Disposition 1', 'Sub Disposition 2',
-                'Direction', 'Comment', 'Recording Path'
+                'Direction', 'CSAT Score', 'Comment', 'Recording Path'
             ];
             if (isCsat) {
                 CSV_HEADERS = [
                     'Start Date', 'End Date', 'Caller Id Number', 'Phone Number',
-                    'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Campaign',
+                    'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Call Status', 'Campaign',
                     'Lead Group Name', 'CSAT Score', 'Disconnected By',
                     'Disposition', 'Sub Disposition 1', 'Sub Disposition 2',
-                    'Direction', 'Recording Path'
+                    'Direction', 'Comment', 'Recording Path'
                 ];
             }
 
@@ -1195,7 +1259,7 @@ export class CdrsService {
                 for (const doc of batch) {
                     const data: any = typeof (doc as any).toObject === 'function' ? (doc as any).toObject() : doc;
 
-		    const callstart = data.disposition !== "NO_ROUTE_DESTINATION" ? data.callstart
+                       const callstart = data.disposition !== "NO_ROUTE_DESTINATION" ? data.callstart
                         ? moment.tz(new Date(data.callstart + 'Z'), timezone).format('YYYY-MM-DD HH:mm:ss')
                         : '' : data.callstart;
 
@@ -1223,7 +1287,11 @@ export class CdrsService {
                     const rawHoldTime = Number.parseInt(data.hold_time) || 0;
                     const rawWaitingTime = Number.parseInt(data.waiting_time) || 0;
                     const rawRingingTime = Number.parseInt(data.ringing_time) || 0;
-                    const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                    //const computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                    let computedTotalDuration = rawWaitingTime + rawRingingTime + rawHoldTime + rawBillsecond;
+                    if (data.direction === "outbound" && rawBillsecond === 0) {
+                        computedTotalDuration = Math.max(Number.parseInt(data.total_duration) || 0, computedTotalDuration);
+                    }
 
                     // 🔥 ADD THIS BLOCK
                     if (data?.destination_number?.includes("_open")) {
@@ -1231,13 +1299,35 @@ export class CdrsService {
                         data.destination_number = data.destination_number.replace("_open", "");
                     }
 
+                    // Swap for Inbound before building CSV row
+                    let caller_id_number_val = data.caller_id_number;
+                    let destination_number_val = data.destination_number;
+                    const isI = data.direction?.toString().toLowerCase().includes("inbound");
+                    if (isI) {
+                        caller_id_number_val = data.destination_number;
+                        destination_number_val = data.caller_id_number;
+                    }
+                    const actual_talktime = (data.direction === 'inbound') ? this.secondsToHHMMSS(data.actual_talktime) : (String(data.dial_method) === "1"
+                        ? (data.user_uuid && String(data.user_uuid).trim() !== "" ? this.secondsToHHMMSS(rawBillsecond) : this.secondsToHHMMSS(0))
+                        : this.secondsToHHMMSS(rawBillsecond));
+                    const call_status =
+                        data.direction === "inbound"
+                            ? Number(data?.actual_talktime) > 0
+                                ? "Connected"
+                                : "Abandoned"
+                            : data.direction === "outbound"
+                                ? actual_talktime !== "00:00:00"
+                                    ? "Connected"
+                                    : "Not Connected"
+                                : "Not Connected";
+
                     const recording_path = data?.recording_path ? `${baseUrl}/recordings/download/recording?recording=` + data?.recording_path : "";
 
                     let row = [
                         callstart,
                         data.callend || '',
-                        data.caller_id_number || '',
-                        data.destination_number || '',
+                        caller_id_number_val || '',
+                        destination_number_val || '',
                         user?.username || '',
                         user?.fullname || '',
                         userGroupName,
@@ -1250,6 +1340,8 @@ export class CdrsService {
                         // this.secondsToHHMMSS(data.ringing_time),
                         this.secondsToHHMMSS(computedTotalDuration),
                         this.secondsToHHMMSS(rawBillsecond),
+                        actual_talktime,
+                        call_status,
                         this.secondsToHHMMSS(rawHoldTime),
                         this.secondsToHHMMSS(rawWaitingTime),
                         this.secondsToHHMMSS(rawRingingTime),
@@ -1261,6 +1353,7 @@ export class CdrsService {
                         path[1] ?? '',
                         path[2] ?? '',
                         data.direction || '',
+                        data.ivr_feedback_score || '-',
                         comment,
                         recording_path
                     ].map(escCsv).join(',');
@@ -1269,11 +1362,12 @@ export class CdrsService {
                         row = [
                             callstart,
                             data.callend || '',
-                            data.caller_id_number || '',
-                            data.destination_number || '',
+                            caller_id_number_val || '',
+                            destination_number_val || '',
                             user?.username || '',
                             user?.fullname || '',
                             userGroupName,
+                            ivr_name,
                             agentLabel,
                             // this.secondsToHHMMSS(data.total_duration),
                             // billsecond,
@@ -1281,20 +1375,21 @@ export class CdrsService {
                             // this.secondsToHHMMSS(data.waiting_time),
                             // this.secondsToHHMMSS(data.ringing_time),
                             this.secondsToHHMMSS(computedTotalDuration),
+                            call_status,
                             // this.secondsToHHMMSS(rawBillsecond),
                             // this.secondsToHHMMSS(rawHoldTime),
                             // this.secondsToHHMMSS(rawWaitingTime),
                             // this.secondsToHHMMSS(rawRingingTime),
                             campaign,
                             leadGroupName,
-                            data?.ivr_feedback_score,
+                            data?.ivr_feedback_score || '-',
                             // dialMethodLabel(data.dial_method),
                             disconnectedByLabel(data.disconnected_by),
                             path[0] ?? '',
                             path[1] ?? '',
                             path[2] ?? '',
                             data.direction || '',
-                            // comment,
+                            comment,
                             recording_path
                         ].map(escCsv).join(',');
                     }

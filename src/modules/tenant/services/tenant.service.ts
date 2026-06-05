@@ -1633,9 +1633,11 @@ export class TenantService {
         count = await this.realtime_report_count_management.find(query).count().exec();
         result.map((data) => {
           finalArray = [];
-          ringingOutbound = data._id.type == 0 ? (ringingOutbound + data.count) : ringingOutbound;
+          ringingOutbound =( data._id.type == 0|| data._id.type == 3) ? (ringingOutbound + data.count) : ringingOutbound;
+          // ringingOutbound = data._id.type == 0 ? (ringingOutbound + data.count) : ringingOutbound;
           waitingOutbound = data._id.type == 1 ? (waitingOutbound + data.count) : waitingOutbound;
-          agentOnCall = data._id.type == 2 ? (agentOnCall + data.count) : agentOnCall;
+          // agentOnCall = data._id.type == 2 ? (agentOnCall + data.count) : agentOnCall;
+          agentOnCall = (data._id.type == 2 || data._id.type == 1) ? (agentOnCall + data.count) : agentOnCall;
           active_call_count = count;
         });
         finalArray.push({ ringingOutbound, waitingOutbound, agentOnCall, active_call_count });

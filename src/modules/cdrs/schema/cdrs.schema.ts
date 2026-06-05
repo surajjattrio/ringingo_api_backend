@@ -138,6 +138,10 @@ export class CdrsSchema {
 
     @Prop()
     is_csat: string;
+    
+    @Prop()
+    actual_talktime: string;
+
 }
 
 let cdrsSchema = SchemaFactory.createForClass( CdrsSchema );
