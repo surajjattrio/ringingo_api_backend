@@ -103,6 +103,9 @@ export class UserPerformanceReportSchema {
 
     @Prop()
     break_details: String
+
+    @Prop()
+    actual_talktime : String
 }
 
 let userPerformanceReportSchema = SchemaFactory.createForClass(UserPerformanceReportSchema);

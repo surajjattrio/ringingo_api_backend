@@ -502,7 +502,7 @@ export class UserPerformanceReportService {
               username: { $first: "$user_info.username" },
               fullname: { $first: "$user_info.fullname" },
               totalCalls: { $sum: 1 },
-              successfulCalls: { $sum: { $cond: [{ $eq: ["$disposition", "ANSWERED"] }, 1, 0] } },
+              successfulCalls: { $sum: { $cond: [{ $in: ["$disposition", ["ANSWERED", "NORMAL_CLEARING"]] }, 1, 0] } },
               totalBillseconds: { $sum: "$billsecond" },
               totalInboundCalls: { $sum: { $cond: { if: { $eq: [{ $toLower: "$direction" }, "inbound"] }, then: 1, else: 0 } } },
               totalOutboundCalls: { $sum: { $cond: { if: { $eq: [{ $toLower: "$direction" }, "outbound"] }, then: 1, else: 0 } } },
@@ -513,11 +513,32 @@ export class UserPerformanceReportService {
               totalDuration: { $sum: "$total_duration" },
               totalBillsecondsFromCdrs: { $sum: { $convert: { input: "$billsecond", to: "double", onError: 0, onNull: 0 } } },
               disconnectedByAgent: { $sum: { $cond: [{ $in: ["$disconnected_by", [0, "0"]] }, 1, 0] } },
+              totalActualTalkTime: {
+                $sum: {
+                  $cond: {
+                    if: { $eq: [{ $toLower: "$direction" }, "inbound"] },
+                    then: { $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } },
+                    else: {
+                      $cond: {
+                        if: { $eq: [{ $toString: "$dial_method" }, "1"] },
+                        then: {
+                          $cond: {
+                            if: { $and: [{ $ne: ["$user_uuid", null] }, { $ne: [{ $trim: { input: { $toString: "$user_uuid" } } }, ""] }] },
+                            then: { $convert: { input: "$billsecond", to: "double", onError: 0, onNull: 0 } },
+                            else: 0
+                          }
+                        },
+                        else: { $convert: { input: "$billsecond", to: "double", onError: 0, onNull: 0 } }
+                      }
+                    }
+                  }
+                }
+              },
             }
           },
           {
             $project: {
-              _id: 1, username: 1, fullname: 1, totalCalls: 1, successfulCalls: 1, totalBillseconds: 1, totalInboundCalls: 1, totalOutboundCalls: 1, answeredCalls: 1, totalRingingTime: 1, totalHoldTime: 1, totalWaitingTime: 1, totalDuration: 1, disconnectedByAgent: 1,
+              _id: 1, username: 1, fullname: 1, totalCalls: 1, successfulCalls: 1, totalBillseconds: 1, totalInboundCalls: 1, totalOutboundCalls: 1, answeredCalls: 1, totalRingingTime: 1, totalHoldTime: 1, totalWaitingTime: 1, totalDuration: 1, disconnectedByAgent: 1, totalActualTalkTime: 1,
               avgRingingTime: { $cond: [{ $eq: ["$answeredCalls", 0] }, 0, { $divide: ["$totalRingingTime", "$answeredCalls"] }] },
               avgHoldTime: { $cond: [{ $eq: ["$answeredCalls", 0] }, 0, { $divide: ["$totalHoldTime", "$answeredCalls"] }] },
               avgWaitingTime: { $cond: [{ $eq: ["$answeredCalls", 0] }, 0, { $divide: ["$totalWaitingTime", "$answeredCalls"] }] },
@@ -691,9 +712,9 @@ export class UserPerformanceReportService {
           outboundCount = cdrAgg.totalOutboundCalls || 0;
         } else {
           totalCalls = cdrAgg.totalCalls || (data.totalInboundCalls + data.totalOutboundCalls) || 0;
-          successfulCalls = data.success || cdrAgg.successfulCalls || 0;
+          successfulCalls = cdrAgg.successfulCalls ?? data.success ?? 0;
           billableSeconds = data.totalBillseconds || cdrAgg.totalBillsecondsFromCdrs || 0;
-          answeredCalls = data.answeredCalls || cdrAgg.answeredCalls || 0;
+          answeredCalls = cdrAgg.answeredCalls ?? data.answeredCalls ?? 0;
           inboundCount = cdrAgg.totalInboundCalls ?? data.totalInboundCalls ?? 0;
           outboundCount = cdrAgg.totalOutboundCalls ?? data.totalOutboundCalls ?? 0;
         }
@@ -730,8 +751,9 @@ export class UserPerformanceReportService {
           avgRingingTime: this.formatTimeFromSeconds(avgRingingSec, true),
           avgHoldTime: this.formatTimeFromSeconds(avgHoldSec, true),
           avgWaitingTime: this.formatTimeFromSeconds(avgWaitingSec, true),
-          acd: this.calculateAcd(billableSeconds, successfulCalls),
+          acd: this.calculateAcd(cdrAgg.totalActualTalkTime || 0, successfulCalls),
           talk_time: this.formatTimeFromSeconds(billableSeconds, true),
+          actual_talktime: this.formatTimeFromSeconds(cdrAgg.totalActualTalkTime || 0, true),
           tenant_uuid,
           disconnected_by_agent: disconnectedByAgent,
         };
