@@ -4,7 +4,6 @@ import { Model } from "mongoose";
 import { CommonDBFunctions } from "src/modules/common/common_db_functions";
 import * as moment from 'moment-timezone';
 import { UserPerformanceReportDocument, UserPerformanceReportSchema } from "../schema/user-performance-report.schema";
-import { CdrsSummaryDocument, CdrsSummarySchema } from "src/modules/cdrs/schema/cdrs-summary.schema";
 import { AgentLoginLogoutDocument, AgentLoginLogoutSchema } from "src/modules/call-center/schema/agent-login-logout.schema";
 import { CdrsDocument, CdrsSchema } from "src/modules/cdrs/schema/cdrs.schema";
 import { IdleStateAgentDocument, IdleStateAgentSchema } from "src/modules/call-center/schema/idle-state-agent.schema";
@@ -25,7 +24,6 @@ export class UserPerformanceReportService {
   constructor(
     private readonly commonDbFn: CommonDBFunctions,
     @InjectModel(UserPerformanceReportSchema.name) private readonly user_performance_report: Model<UserPerformanceReportDocument>,
-    @InjectModel(CdrsSummarySchema.name) private readonly cdrs_summary: Model<CdrsSummaryDocument>,
     @InjectModel(CdrsSchema.name) private readonly cdrs: Model<CdrsDocument>,
     @InjectModel(AgentLoginLogoutSchema.name) private readonly agent_login_logout_report: Model<AgentLoginLogoutDocument>,
     @InjectModel(IdleStateAgentSchema.name) private readonly idle_state_agent: Model<IdleStateAgentDocument>,
@@ -366,7 +364,7 @@ export class UserPerformanceReportService {
     const rangeEnd   = moment.tz(enddate, timezone).endOf('day');
 
     const [getUsersCallData, getAgentHistory, getAgentIdleACWHistory] = await Promise.all([
-      this.fetchDataFromCdrsSummary(tenant_uuid, rangeStart, rangeEnd, allUsers, direction, campaign_uuid),
+      this.fetchDataFromCdrs(tenant_uuid, rangeStart, rangeEnd, allUsers, direction, campaign_uuid),
       this.getAgentHistory(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
       this.getIdleAndACWTime(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
     ]);
@@ -386,17 +384,15 @@ export class UserPerformanceReportService {
   @return             : Array of an object with call details of user's
   */
 
-  async fetchDataFromCdrsSummary(tenant_uuid, callstart, callend, allUsers, direction?, campaign_uuid?) {
+  async fetchDataFromCdrs(tenant_uuid, callstart, callend, allUsers, direction?, campaign_uuid?) {
     //Variable declaration
     let finalArr = [];
     try {
       //createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() }
       let matchCdrs: any = { tenant_uuid, user_uuid: { $in: allUsers }, createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() } };
-      let matchCdrsSummary: any = { tenant_uuid, user_uuid: { $in: allUsers }, createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() } };
 
       if (direction) {
         matchCdrs.direction = { $regex: new RegExp(`^${direction}$`, 'i') };
-        matchCdrsSummary.direction = { $regex: new RegExp(`^${direction}$`, 'i') };
       }
 
       if (campaign_uuid && campaign_uuid.length > 0) {
@@ -405,85 +401,7 @@ export class UserPerformanceReportService {
       }
 
       // 🔹 RUN ALL AGGREGATIONS AND QUERIES IN PARALLEL FOR MAXIMUM PERFORMANCE
-      const [cdrsSummaryDetails, cdrsAggregateDetails, csatAgg] = await Promise.all([
-        this.cdrs_summary.aggregate([
-          { $match: matchCdrsSummary },
-          {
-            $lookup: { from: "user", localField: "user_uuid", foreignField: "uuid", as: "user" }
-          },
-          { $sort: { _id: -1 } },
-          {
-            $addFields: {
-              report_date: {
-                $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
-              }
-            }
-          },
-          {
-            $group: {
-              // _id: "$user_uuid",
-              _id: {
-                user_uuid: "$user_uuid",
-                report_date: "$report_date"
-              },
-              success: { $sum: "$success" },
-              acd: { $sum: "$billsecond" },
-              username: { "$first": "$user.username" },
-              fullname: { "$first": "$user.fullname" },
-              totalInboundCalls: {
-                $sum: {
-                  $cond: {
-                    if: { $eq: [{ $toLower: "$direction" }, "inbound"] },
-                    then: 1,
-                    else: 0,
-                  },
-                },
-              },
-              totalOutboundCalls: {
-                $sum: {
-                  $cond: {
-                    if: { $eq: [{ $toLower: "$direction" }, "outbound"] },
-                    then: 1,
-                    else: 0,
-                  },
-                },
-              },
-              answeredCalls: {
-                $sum: {
-                  $cond: {
-                    if: { $gt: ['$billsecond', 0] },
-                    then: 1,
-                    else: 0,
-                  },
-                },
-              },
-              totalBillseconds: {
-                $sum: {
-                  $cond: {
-                    if: { $gt: ['$billsecond', 0] },
-                    then: "$billsecond",
-                    else: 0,
-                  },
-                },
-              },
-            }
-          }
-        ]).exec(),
-
-        // if (cdrsSummaryDetails.length) {
-        //   cdrsSummaryDetails.map((data) => {
-        //     finalArr.push({
-        //       user_uuid: data._id,
-        //       username: data.username[0],
-        //       inbound_call_count: data.totalInboundCalls,
-        //       outbound_call_count: data.totalOutboundCalls,
-        //       acd: this.calculateAcd(data.acd, data.success),
-        //       talk_time: this.calculateAcd("", "", data.totalBillseconds,true),
-        //       tenant_uuid
-        //     })
-        //   });
-        //   return finalArr;
-        // }
+      const [cdrsAggregateDetails, csatAgg] = await Promise.all([
         this.cdrs.aggregate([
           { $match: matchCdrs },
           { $lookup: { from: "user", localField: "user_uuid", foreignField: "uuid", as: "user_info" } },
@@ -647,77 +565,24 @@ export class UserPerformanceReportService {
       ]);
 
       // Early return if no data
-      if ((!cdrsSummaryDetails || cdrsSummaryDetails.length === 0) && (!cdrsAggregateDetails || cdrsAggregateDetails.length === 0)) {
+      if (!cdrsAggregateDetails || cdrsAggregateDetails.length === 0) {
         return finalArr;
       }
 
-      // 🔹 BUILD MAPS FOR O(1) LOOKUPS
-      const cdrsMap: any = {};
-      (cdrsAggregateDetails || []).forEach((c: any) => {
-        cdrsMap[`${c._id.user_uuid}_${c._id.report_date}`] = c;
-      });
-
       const csatMap: any = {};
       (csatAgg || []).forEach((c: any) => {
-        // csatMap[c._id] = c;
         csatMap[`${c._id.user_uuid}_${c._id.report_date}`] = c;
       });
 
-      // 🔹 BUILD RESULT ARRAY WITH OPTIMIZED LOOKUPS
-      const unifiedMap: any = {};
-      
-      (cdrsSummaryDetails || []).forEach((s) => {
-        unifiedMap[`${s._id.user_uuid}_${s._id.report_date}`] = { summary: s };
-      });
-      
-      (cdrsAggregateDetails || []).forEach((c) => {
-        const key = `${c._id.user_uuid}_${c._id.report_date}`;
-        if (!unifiedMap[key]) {
-          unifiedMap[key] = {
-            summary: {
-              _id: c._id,
-              username: [c.username],
-              fullname: [c.fullname],
-              totalInboundCalls: 0,
-              totalOutboundCalls: 0,
-              success: 0,
-              answeredCalls: 0
-            }
-          };
-        }
-        unifiedMap[key].cdr = c;
-      });
-
-      if (campaign_uuid && campaign_uuid.length > 0) {
-        // If filtering by campaign_uuid, we MUST ignore cdrs_summary-only records because they cannot be filtered.
-        Object.keys(unifiedMap).forEach(key => {
-          if (!unifiedMap[key].cdr) {
-            delete unifiedMap[key];
-          }
-        });
-      }
-
-      finalArr = Object.values(unifiedMap).map((item: any) => {
-        const data = item.summary;
-        const cdrAgg = item.cdr || {};
-        const isCampaignFiltered = (campaign_uuid && campaign_uuid.length > 0);
-        let totalCalls, successfulCalls, billableSeconds, answeredCalls, inboundCount, outboundCount;
+      finalArr = cdrsAggregateDetails.map((cdrAgg: any) => {
+        const key = `${cdrAgg._id.user_uuid}_${cdrAgg._id.report_date}`;
         
-        if (isCampaignFiltered) {
-          totalCalls = cdrAgg.totalCalls || 0;
-          successfulCalls = cdrAgg.successfulCalls || 0;
-          billableSeconds = cdrAgg.totalBillsecondsFromCdrs || cdrAgg.totalBillseconds || 0;
-          answeredCalls = cdrAgg.answeredCalls || 0;
-          inboundCount = cdrAgg.totalInboundCalls || 0;
-          outboundCount = cdrAgg.totalOutboundCalls || 0;
-        } else {
-          totalCalls = cdrAgg.totalCalls || (data.totalInboundCalls + data.totalOutboundCalls) || 0;
-          successfulCalls = cdrAgg.successfulCalls ?? data.success ?? 0;
-          billableSeconds = data.totalBillseconds || cdrAgg.totalBillsecondsFromCdrs || 0;
-          answeredCalls = cdrAgg.answeredCalls ?? data.answeredCalls ?? 0;
-          inboundCount = cdrAgg.totalInboundCalls ?? data.totalInboundCalls ?? 0;
-          outboundCount = cdrAgg.totalOutboundCalls ?? data.totalOutboundCalls ?? 0;
-        }
+        let totalCalls = cdrAgg.totalCalls || 0;
+        let successfulCalls = cdrAgg.successfulCalls || 0;
+        let billableSeconds = cdrAgg.totalBillsecondsFromCdrs || cdrAgg.totalBillseconds || 0;
+        let answeredCalls = cdrAgg.answeredCalls || 0;
+        let inboundCount = cdrAgg.totalInboundCalls || 0;
+        let outboundCount = cdrAgg.totalOutboundCalls || 0;
 
         const totalRinging = cdrAgg.totalRingingTime || 0;
         const totalHold = cdrAgg.totalHoldTime || 0;
@@ -727,14 +592,14 @@ export class UserPerformanceReportService {
         const avgRingingSec = totalCalls ? Math.floor(totalRinging / totalCalls) : 0;
         const avgHoldSec = totalCalls ? Math.floor(totalHold / totalCalls) : 0;
         const avgWaitingSec = totalCalls ? Math.floor(totalWaiting / totalCalls) : 0;
-        const csat = csatMap[`${data._id.user_uuid}_${data._id.report_date}`] || {};
+        const csat = csatMap[key] || {};
         const disconnectedByAgent = cdrAgg.disconnectedByAgent || 0;
 
         return {
-          user_uuid: data._id.user_uuid,
-          report_date: data._id.report_date,
-          username: data.username[0],
-          fullname: data.fullname[0],
+          user_uuid: cdrAgg._id.user_uuid,
+          report_date: cdrAgg._id.report_date,
+          username: cdrAgg.username,
+          fullname: cdrAgg.fullname,
           csat_avg_score: Number((csat.csat_avg_score || 0).toFixed(0)),
           inbound_call_count: inboundCount,
           outbound_call_count: outboundCount,
@@ -761,7 +626,7 @@ export class UserPerformanceReportService {
 
       return finalArr;
     } catch (error) {
-      Logger.error(`Error in catch block ==> fetchDataFromCdrsSummary()`, error.message);
+      Logger.error(`Error in catch block ==> fetchDataFromCdrs()`, error.message);
       return finalArr;
     }
   }
