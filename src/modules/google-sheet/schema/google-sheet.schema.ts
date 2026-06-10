@@ -11,6 +11,7 @@ export type SheetStatus = 'SYNCED' | 'SYNCING' | 'ERROR';
 	toJSON: { virtuals: true, getters: true },
 	toObject: { virtuals: true, getters: true }
 })
+
 export class GoogleSheet {
 
 	@Prop({
@@ -20,23 +21,41 @@ export class GoogleSheet {
 	})
 	uuid: string;
 
-	@Prop({ type: Array, default: () => [] })
-	row: any[];
+	@Prop()
+	config_uuid: string;
+
+	@Prop()
+	spreadsheet_id: string;
+
+	@Prop()
+	sheet_gid: number;
+
+	@Prop()
+	tab_name: string;
+
+	@Prop()
+	row_number: number;
+
+	@Prop()
+	crm_lead_id: string;
+
+	@Prop()
+	google_sheet_status: string;
 
 	@Prop()
 	sheetDate: string;
 
 	@Prop()
-	lead_group_uuid: string
+	lead_group_uuid: string;
 
 	@Prop()
-	tenant_uuid: string
+	tenant_uuid: string;
 
 	@Prop()
-	campaign_uuid: string
+	campaign_uuid: string;
 
 	@Prop()
-	lead_status: string
+	lead_status: string;
 
 	@Prop()
 	name: string;
@@ -167,3 +186,126 @@ export class GoogleSheet {
 }
 
 export const GoogleSheetSchema = SchemaFactory.createForClass(GoogleSheet);
+
+// ---------- Single Indexes ----------
+
+GoogleSheetSchema.index({ uuid: 1 }, { unique: true });
+GoogleSheetSchema.index({ tenant_uuid: 1 });
+GoogleSheetSchema.index({ campaign_uuid: 1 });
+GoogleSheetSchema.index({ lead_group_uuid: 1 });
+GoogleSheetSchema.index({ phone: 1 });
+GoogleSheetSchema.index({ mobileNumber: 1 });
+GoogleSheetSchema.index({ status: 1 });
+GoogleSheetSchema.index({ lead_status: 1 });
+GoogleSheetSchema.index({ orderId: 1 });
+GoogleSheetSchema.index({ sheetStatus: 1 });
+GoogleSheetSchema.index({ spreadsheetId: 1 });
+GoogleSheetSchema.index({ createdAt: -1 });
+
+// ---------- Compound Indexes ----------
+
+// Fast tenant lead listing
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	createdAt: -1,
+});
+
+// Fast campaign lead lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	campaign_uuid: 1,
+});
+
+// Fast campaign reporting
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	campaign_uuid: 1,
+	createdAt: -1,
+});
+
+// Fast lead group lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	lead_group_uuid: 1,
+});
+
+// Fast lead status filtering
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	lead_status: 1,
+});
+
+// Fast processing queue
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	status: 1,
+});
+
+// Fast processing queue sorting
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	status: 1,
+	createdAt: -1,
+});
+
+// Fast phone lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	phone: 1,
+});
+
+// Fast mobile number lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	mobileNumber: 1,
+});
+
+// Fast order lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	orderId: 1,
+});
+
+// Fast spreadsheet lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	spreadsheetId: 1,
+});
+
+// Fast sheet sync status lookup
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	sheetStatus: 1,
+});
+
+// Fast sync history
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	sheetStatus: 1,
+	lastSyncedAt: -1,
+});
+
+// Fast spreadsheet synchronization monitoring
+GoogleSheetSchema.index({
+	spreadsheetId: 1,
+	sheetName: 1,
+	sheetStatus: 1,
+});
+
+// Fast reporting and exports
+GoogleSheetSchema.index({
+	tenant_uuid: 1,
+	campaign_uuid: 1,
+	lead_status: 1,
+});
+
+// Prevent duplicate orders per tenant
+GoogleSheetSchema.index(
+	{
+		tenant_uuid: 1,
+		orderId: 1,
+	},
+	{
+		sparse: true,
+	}
+);

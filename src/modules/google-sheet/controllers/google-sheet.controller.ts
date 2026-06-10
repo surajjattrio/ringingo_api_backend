@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Body, Req, Param, Delete, Headers, Query, Res } from '@nestjs/common';
 import { Public } from 'src/global_constant';
 import { GoogleSheetService } from '../services/google-sheet.service';
+import { SampannGoogleSheetService } from '../services/google-sheet-sampan.service';
 import { CreateGoogleCredentialDto } from '../dto/google-credential.dto';
 // import { GoogleSheetProducer } from '../services/google-sheet.producer';
 // import { GoogleSheetHealthService } from '../services/google-sheet.health';
@@ -8,7 +9,8 @@ import { CreateGoogleCredentialDto } from '../dto/google-credential.dto';
 @Controller('google-sheet')
 export class GoogleSheetController {
     constructor(
-        private readonly sheetsService: GoogleSheetService
+        private readonly sheetsService: GoogleSheetService,
+        private readonly sheets_service: SampannGoogleSheetService
         // private readonly producer: GoogleSheetProducer,
         // private readonly health: GoogleSheetHealthService,
     ) { }
@@ -21,11 +23,14 @@ export class GoogleSheetController {
     }
 
     /** Save Google Service Account credentials */
-    // @Public()
+    @Public()
     @Post('credentials')
     async saveCredentials(@Body() dto: CreateGoogleCredentialDto) {
-        const result = await this.sheetsService.createCredential(dto);
-        return { statusCode: result.statusCode, message: result.data };
+        const [mainService, sampannService] = await Promise.allSettled([
+            this.sheetsService.createCredential(dto),
+            this.sheets_service.createCredential(dto)
+        ]);
+        return { mainService, sampannService };
     }
 
     /** Generate access token using credentials from MongoDB */

@@ -270,7 +270,7 @@ export class GoogleSheetService {
             await this.leadManagementService.createNewLeadWithoutReset(payload);
 
             return true;
-        } catch (err) {
+        } catch (err: any) {
             console.error('[GoogleSheetService] Error saving to MongoDB:', err?.message || err);
             if (err?.errors) {
                 console.error('[GoogleSheetService] Validation errors:', JSON.stringify(err.errors));
@@ -403,7 +403,7 @@ export class GoogleSheetService {
             await this.blendedCampaignService.googleSheetLeadsReset(resetLeadDto);
 
             console.log('[GoogleSheetService] Reset leads completed.');
-        } catch (err) {
+        } catch (err: any) {
             console.error('[GoogleSheetService] Post-insert tasks failed:', err?.message || err);
         }
     }

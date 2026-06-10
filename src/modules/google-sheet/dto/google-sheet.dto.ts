@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsArray, IsDateString, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { IsArray, IsDateString, IsNotEmpty, IsOptional, IsString, IsNumber, ValidateNested } from "class-validator";
+import { Type } from "class-transformer";
 
 // export class GoogleSheetRowDto {
 //     row: any[];
@@ -194,5 +195,68 @@ export class CreateGoogleSheetDto {
     note?: string
 }
 
-// export class UpdateGoogleSheetDto extends CreateGoogleSheetDto { }
+export class FieldMappingDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsNumber()
+    index: number;
 
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    field: string;
+
+    @ApiProperty({ required: false, default: 'string', enum: ['string', 'number', 'date', 'phone'] })
+    @IsOptional()
+    @IsString()
+    type?: 'string' | 'number' | 'date' | 'phone';
+}
+
+export class GoogleSheetConfigDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    tenant_uuid: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    credential_uuid: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    user_group_uuid: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    campaign_uuid: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lead_status: string;
+
+    @ApiProperty({ required: false, default: 'blended', enum: ['blended', 'outbound'] })
+    @IsOptional()
+    @IsString()
+    campaign_flag?: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    sheet_id: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    range_without_tab: string;
+
+    @ApiProperty({ type: [FieldMappingDto], required: false })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => FieldMappingDto)
+    field_mappings?: FieldMappingDto[];
+}

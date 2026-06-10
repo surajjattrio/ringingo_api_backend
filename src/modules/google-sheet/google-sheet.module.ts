@@ -3,17 +3,20 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GoogleSheetController } from './controllers/google-sheet.controller';
 import { GoogleSheetService } from './services/google-sheet.service';
+import { SampannGoogleSheetService } from './services/google-sheet-sampan.service';
 // import { GoogleSheetProducer } from './services/google-sheet.producer';
 // import { GoogleSheetConsumer } from './services/google-sheet.consumer';
 // import { GoogleSheetHealthService } from './services/google-sheet.health';
 import { GoogleSheetCron } from './services/google-sheet.cron';
 import { MongooseModule } from '@nestjs/mongoose';
-import { GoogleSheetSchema, GoogleSheet } from './schema/google-sheet.schema';
+import { GoogleSheetSchema, GoogleSheet } from 'src/modules/google-sheet/schema/google-sheet.schema';
+import { GoogleSheetLead, GoogleSheetLeadSchema } from 'src/modules/google-sheet/schema/google-sheet-leads.schema';
 import { GoogleSheetConfigSchema, GoogleSheetConfig } from './schema/google-sheet-config.schema';
+import { GoogleCredential, GoogleCredentialSchema } from './schema/google-credential.schema';
+import { GoogleSheetTab, GoogleSheetTabSchema } from './schema/google-sheet-tab.schema';
 import { LeadManagementModule } from 'src/modules/lead-management/lead-management.module';
 import { LeadGroupModule } from '../lead-group/lead-group.module';
 import { OutboundCampaignModule } from 'src/modules/campaigns/outbound-campaign/outbound-campaign.module';
-import { GoogleCredential, GoogleCredentialSchema } from './schema/google-credential.schema';
 import { BlendedCampaignModule } from '../campaigns/blended-campaign/blended-campaign.module';
 
 @Module({
@@ -44,6 +47,8 @@ import { BlendedCampaignModule } from '../campaigns/blended-campaign/blended-cam
             { name: GoogleSheet.name, schema: GoogleSheetSchema },
             { name: GoogleSheetConfig.name, schema: GoogleSheetConfigSchema },
             { name: GoogleCredential.name, schema: GoogleCredentialSchema },
+            { name: GoogleSheetTab.name, schema: GoogleSheetTabSchema },
+            { name: GoogleSheetLead.name, schema: GoogleSheetLeadSchema },
         ]),
         LeadManagementModule,
         LeadGroupModule,
@@ -54,6 +59,7 @@ import { BlendedCampaignModule } from '../campaigns/blended-campaign/blended-cam
     providers: [
         GoogleSheetCron,
         GoogleSheetService,
+        SampannGoogleSheetService,
         // GoogleSheetConsumer,
         // GoogleSheetProducer,
         // Health provider to verify RabbitMQ connectivity
