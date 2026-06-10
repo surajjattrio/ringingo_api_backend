@@ -635,7 +635,7 @@ export class CommonFunctions {
            });
 
         })*/
-        let command = `originate {spy=true,cust_uuid=${call_uuid}}user/${extension}@${domain} ${extension} xml external mod_spy mod_spy mod_spy`;
+        let command = `originate {spy=true,sip_h_X-Monitor=true,cust_uuid=${call_uuid}}user/${extension}@${domain} ${extension} xml external mod_spy mod_spy mod_spy`;
         this.fsConnection.api( command, function ( res ) { } );
     }
 
@@ -648,7 +648,7 @@ export class CommonFunctions {
           conn.api(command, function (res) {
           });
         })*/
-        let command = `originate {barge=true,cust_uuid=${call_uuid}}user/${extension}@${domain} ${extension} xml external mod_barge mod_barge mod_barge`;
+        let command = `originate {barge=true,sip_h_X-Barge=true,cust_uuid=${call_uuid}}user/${extension}@${domain} ${extension} xml external mod_barge mod_barge mod_barge`;
         this.fsConnection.api( command, function ( res ) { } );
     }
 
@@ -664,7 +664,7 @@ export class CommonFunctions {
            // let command = `originate {whisper=true,cust_uuid=${call_uuid}}user/${extension}@${domain} ${extension} xml external mod_whisper mod_whisper mod_whisper`;
         
         // Using mod_spy for whispering
-        let command = `originate {cust_uuid=${call_uuid}}user/${extension}@${domain} &spy(${call_uuid} whisper)`;
+        let command = `originate {sip_h_X-Whisper=true,cust_uuid=${call_uuid}}user/${extension}@${domain} &spy(${call_uuid} whisper)`;
 
         this.fsConnection.api(command, function(res) {
             console.log("Whisper response:", res.getBody());
