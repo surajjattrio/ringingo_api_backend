@@ -88,60 +88,60 @@ export class LoginlogoutreportService {
      // }
 
 
-     async get_non_billable_breakhours(alldata) {
-          // Step 1: All break entries
-          let breakentries = alldata.filter(
-               x => x.breakcode_uuid !== undefined && x.breakcode_uuid !== ""
-          );
+     // async get_non_billable_breakhours(alldata) {
+     //      // Step 1: All break entries
+     //      let breakentries = alldata.filter(
+     //           x => x.breakcode_uuid !== undefined && x.breakcode_uuid !== ""
+     //      );
 
-          if (breakentries.length === 0) return 0;
+     //      if (breakentries.length === 0) return 0;
 
-          // Step 2: Get unique breakcodes
-          let breakCodeUuids = [...new Set(breakentries.map(x => x.breakcode_uuid))];
+     //      // Step 2: Get unique breakcodes
+     //      let breakCodeUuids = [...new Set(breakentries.map(x => x.breakcode_uuid))];
 
-          // Step 3: Load breakcodes with billable status
-          let breakCodes = await this.breakcode.find({
-               uuid: { $in: breakCodeUuids }
-          }).lean();
+     //      // Step 3: Load breakcodes with billable status
+     //      let breakCodes = await this.breakcode.find({
+     //           uuid: { $in: breakCodeUuids }
+     //      }).lean();
 
-          // Step 4: Create map: uuid → billable
-          let breakCodeMap: any = {};
-          breakCodes.forEach((bc: any) => {
-               breakCodeMap[bc.uuid] = bc.billable; // "0" or "1"
-          });
+     //      // Step 4: Create map: uuid → billable
+     //      let breakCodeMap: any = {};
+     //      breakCodes.forEach((bc: any) => {
+     //           breakCodeMap[bc.uuid] = bc.billable; // "0" or "1"
+     //      });
 
-          // Step 5: Filter only **non-billable**       entries
-          // billable === "1" → NON-BILLABLE (your logic)
-          let nonBillableBreakEntries = breakentries.filter(
-               x => breakCodeMap[x.breakcode_uuid] === "1"
-          );
+     //      // Step 5: Filter only **non-billable**       entries
+     //      // billable === "1" → NON-BILLABLE (your logic)
+     //      let nonBillableBreakEntries = breakentries.filter(
+     //           x => breakCodeMap[x.breakcode_uuid] === "1"
+     //      );
 
-          // If no non-billable breaks
-          if (nonBillableBreakEntries.length < 2) return 0;
+     //      // If no non-billable breaks
+     //      if (nonBillableBreakEntries.length < 2) return 0;
 
-          // Step 6: If odd number of entries → drop last (incomplete break)
-          if (nonBillableBreakEntries.length % 2 !== 0) {
-               nonBillableBreakEntries.pop();
-          }
+     //      // Step 6: If odd number of entries → drop last (incomplete break)
+     //      if (nonBillableBreakEntries.length % 2 !== 0) {
+     //           nonBillableBreakEntries.pop();
+     //      }
 
-          let effectiveHours = [];
+     //      let effectiveHours = [];
 
-          // Step 7: Iterate in correct pairs: (0-1), (2-3), (4-5), ...
-          for (let i = 0; i < nonBillableBreakEntries.length - 1; i += 2) {
-               try {
-                    let start = nonBillableBreakEntries[i].date;
-                    let end = nonBillableBreakEntries[i + 1].date;
+     //      // Step 7: Iterate in correct pairs: (0-1), (2-3), (4-5), ...
+     //      for (let i = 0; i < nonBillableBreakEntries.length - 1; i += 2) {
+     //           try {
+     //                let start = nonBillableBreakEntries[i].date;
+     //                let end = nonBillableBreakEntries[i + 1].date;
 
-                    let calculateHours = this.calculateHours(start, end, "EH");
-                    effectiveHours.push(calculateHours);
-               } catch (err) {
-                    Logger.error("Error calculating non-billable break hours", err.message);
-               }
-          }
+     //                let calculateHours = this.calculateHours(start, end, "EH");
+     //                effectiveHours.push(calculateHours);
+     //           } catch (err) {
+     //                Logger.error("Error calculating non-billable break hours", err.message);
+     //           }
+     //      }
 
-          // Step 8: Sum all minutes
-          return effectiveHours.reduce((acc, n) => acc + n, 0);
-     }
+     //      // Step 8: Sum all minutes
+     //      return effectiveHours.reduce((acc, n) => acc + n, 0);
+     // }
 
      async fetchLoginLogoutReportStatistics(queryParams) {
           const { tenant_uuid, limit, page } = queryParams;
@@ -172,7 +172,7 @@ export class LoginlogoutreportService {
 
           let match: any = {
                tenant_uuid: tenant_uuid,
-               createdAt: { "$gte": new Date(startDate), "$lte": new Date(endDate) }
+               date: { "$gte": startDate.substring(0, 10), "$lte": endDate.substring(0, 10) }
           };
           let lookupDetails = { from: "user", localField: "agent_uuid", foreignField: "uuid", as: "agent" };
           let unwindAgent = { $unwind: "$agent" };
@@ -187,7 +187,7 @@ export class LoginlogoutreportService {
                'agent': { "$first": '$agent' }
           }
 
-          let sort = { date: -1 };
+          let sort = { date: -1, agent_uuid: 1 };
           // let newlimit = parseInt( limit, 10 );
           let projection = { "data": 1, "date": 1, "agent_uuid": 1, 'agent': 1, "createdAt": 1 }
           let response = await this.commonDbFn.fetchDataByGroup(this.agent_login_logout_report, match, lookupDetails, groupByDetails, sort, perPage, projection, unwindAgent, skip);
@@ -197,49 +197,64 @@ export class LoginlogoutreportService {
           // console.log( response );
           let len = response.length;
 
+          const breakCodes = await this.breakcode.find({ tenant_uuid }).lean();
+          const breakCodeMap: Record<string, string> = {};
+          breakCodes.forEach((bc: any) => { breakCodeMap[bc.uuid] = bc.billable; });
+
           for (i = 0; i <= len; i++) {
                if (response[i]?.data.length) {
                     // console.log( response[ i ] );
-                    dateLen = response[i]?.data.length;
                     // console.log( response[ i ].data[ i ].agent );
-                    grossHours = await this.get_loginhours(response[i].data);
+                    response[i].data.sort((a, b) => {
+                         const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+                         if (diff !== 0) return diff;
+                         return Number(a.login_status) - Number(b.login_status);
+                    });
+                    response[i].data = this.deduplicateEntries(response[i].data);
+                    dateLen = response[i]?.data.length;
+
+                    let reportDate = moment.tz(response[i]?.date, queryParams.timezone).startOf('day');
+                    let now = moment().tz(queryParams.timezone);
+                    let dayEnd = reportDate.isSame(now, 'day') ? now.toDate() : reportDate.endOf('day').toDate();
+                    grossHours = await this.get_loginhours(response[i].data, dayEnd);
                     console.log('login_hours', grossHours)
                     // grossHours = await this.calculateHours( response[ i ]?.data[ 0 ].date, response[ i ]?.data[ dateLen - 1 ].date );
+                    Logger.debug(`[LOGIN HOURS] agent=${response[i]?.agent_uuid} grossHours=${grossHours}`);
                     login_stat = await this.login_count(response[i]?.data, 'login_count');
                     breakcount = await this.login_count(response[i]?.data, 'break_count');
                     first = response[i]?.data[0].date;
                     // first_converted_date = moment( first ).utcOffset( queryParams.timezone ).format( "HH:mm" );
-                    first_converted_date = moment.tz(first, queryParams.timezone).format("HH:mm");
-                    last_login_date = await this.get_last_login_date(response[i].data)
+                    first_converted_date = moment.tz(first, queryParams.timezone).format("HH:mm:ss");
+                    last_login_date = await this.get_last_login_date(response[i].data);
                     // console.log( last_login_date );
-                    last = last_login_date == '' ? '00:00' : last_login_date;
+                    last = last_login_date == '' ? '00:00:00' : last_login_date;
                     // console.log( last );
-                    if (last != '00:00') {
+                    if (last != '00:00:00') {
                          // last_converted_date = moment( last ).utcOffset( queryParams.timezone ).format( "HH:mm" );
-                         last_converted_date = moment.tz(last, queryParams.timezone).format("HH:mm");
+                         last_converted_date = moment.tz(last, queryParams.timezone).format("HH:mm:ss");
                     } else {
                          last_converted_date = last;
                     }
 
                     // last = response[ i ]?.data[ dateLen - 1 ].date;
 
-                    total_break_hours = await this.get_breakhours(response[i].data);
+                    total_break_hours = await this.get_breakhours(response[i].data, dayEnd);
                     // console.log( 'break_hours', total_break_hours );
                     // grossHours = grossHours == undefined ? "0h 0m" : grossHours;
                     // total_break_hours = total_break_hours == undefined ? "0h 0m" : grossHours - total_break_hours;
-                    let non_billable_break_hours = await this.get_non_billable_breakhours(response[i].data) || 0;
+                    let non_billable_break_hours = await this.get_non_billable_breakhours(response[i].data, dayEnd, breakCodeMap) || 0;
                     let net_login_hours = Math.max(grossHours - non_billable_break_hours, 0);
 
                     obj = {
                          date: response[i]?.date,
-                         total_login_hours: this.getTimeInHoursAndMinutes(grossHours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(grossHours),
+                         total_login_hours: this.getTimeInHoursAndMinutes(grossHours) || "00:00:00",
                          first_login_time: first_converted_date,
                          last_login_time: last_converted_date,
                          login_count: login_stat,
                          break_count: breakcount,
-                         total_break_hours: this.getTimeInHoursAndMinutes(total_break_hours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(total_break_hours),
+                         total_break_hours: this.getTimeInHoursAndMinutes(total_break_hours) || "00:00:00",
 
-                         net_login: this.getTimeInHoursAndMinutes(net_login_hours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(net_login_hours),
+                         net_login: this.getTimeInHoursAndMinutes(net_login_hours) || "00:00:00",
 
                          agent_uuid: response[i]?.agent_uuid,
                          agent: response[i]?.agent,
@@ -266,6 +281,43 @@ export class LoginlogoutreportService {
           // return this.commonDbFn.sendResponseWithMessage( statusCode, finalArray );
      }
 
+     deduplicateEntries(response: any[]) {
+          if (!Array.isArray(response)) return response;
+
+          const getEventKey = (entry: any): string => {
+               const status = String(entry.login_status);
+               const hasBreak = !!(entry.breakcode && entry.breakcode.length) || !!entry.breakcode_uuid;
+               if (status === "0") {
+                    return hasBreak ? "break_end" : "login";
+               }
+               if (status === "1") {
+                    return hasBreak ? "break_start" : "empty";
+               }
+               if (status === "2") {
+                    return "logout";
+               }
+               return status;
+          };
+
+          let lastKeptEntry: any = null;
+          return response.filter(entry => {
+               const timeStr = entry.date_time || entry.date;
+               if (!timeStr) return true; // keep if no timestamp
+               const key = getEventKey(entry);
+               if (key === "empty") return false; // discard status 1 without breakcode (blank row)
+
+               if (lastKeptEntry) {
+                    const lastKey = getEventKey(lastKeptEntry);
+                    const lastTimeStr = lastKeptEntry.date_time || lastKeptEntry.date;
+                    const timeDiff = new Date(timeStr.toString()).getTime() - new Date(lastTimeStr.toString()).getTime();
+                    if (key === lastKey && timeDiff < 60000) {
+                         return false; // deduplicate same event type within 1 minute
+                    }
+               }
+               lastKeptEntry = entry;
+               return true;
+          });
+     }
 
      async fetchLoginLogoutEntries(queryParam) {
           try {
@@ -273,7 +325,8 @@ export class LoginlogoutreportService {
                const { date, agent_uuid } = queryParam;
                let populateFields = [{ path: "breakcode", select: "name break_code duration" }];
                if (date != "" && date != undefined) {
-                    let response = await this.agent_login_logout_report.find({ date, agent_uuid: agent_uuid }, { date_time: 1, date: 1, createdAt: 1, login_status: 1, breakcode_uuid: 1 }).populate(populateFields).sort({ createdAt: 1 }).exec();
+                    let response = await this.agent_login_logout_report.find({ date, agent_uuid: agent_uuid }, { date_time: 1, date: 1, createdAt: 1, login_status: 1, breakcode_uuid: 1 }).populate(populateFields).sort({ date_time: 1 }).exec();
+                    if (Array.isArray(response)) { response = this.deduplicateEntries(response); }
                     let statusCode = response.length > 0 ? HttpStatus.OK : HttpStatus.NOT_FOUND;
                     return this.commonDbFn.sendResponseWithMessage(statusCode, response);
                }
@@ -409,8 +462,15 @@ export class LoginlogoutreportService {
                "agent": { "$first": "$agent" }
           }
 
-          response = await this.commonDbFn.fetchDataByGroup(this.agent_login_logout_report, { $and: match }, lookupDetails, groupByDetails, "", perPage, projection, unwindAgent, skip);
-          newresponse = await this.commonDbFn.fetchDataByGroup(this.agent_login_logout_report, { $and: match }, lookupDetails, groupByDetails, "", "", projection, unwindAgent);
+          let sort = { date: -1, agent_uuid: 1 };
+
+          response = await this.commonDbFn.fetchDataByGroup(this.agent_login_logout_report, { $and: match }, lookupDetails, groupByDetails, sort, perPage, projection, unwindAgent, skip);
+          newresponse = await this.commonDbFn.fetchDataByGroup(this.agent_login_logout_report, { $and: match }, lookupDetails, groupByDetails, sort, "", projection, unwindAgent);
+
+          // ✅ FETCH BREAK CODES for advancedSearch
+          const breakCodes = await this.breakcode.find({ tenant_uuid }).lean();
+          const breakCodeMap: Record<string, string> = {};
+          breakCodes.forEach((bc: any) => { breakCodeMap[bc.uuid] = bc.billable; });
 
           let i, grossHours, finalArray = [], obj = {}, dateLen, effectiveHours, createdAt, login_stat, first, last_login_date, last, last_converted_date, first_converted_date, total_break_hours, breakcount;
           let len = response.length;
@@ -435,50 +495,61 @@ export class LoginlogoutreportService {
           //      }
           // }
 
-          for (i = 0; i <= len; i++) {
+          for (i = 0; i < len; i++) {
                if (response[i]?.data.length) {
                     // console.log( response[ i ] );
-                    dateLen = response[i]?.data.length;
                     // console.log( response[ i ].data[ i ] );
                     // grossHours = await this.calculateHours(response[i]?.data[0].date, response[i]?.data[dateLen - 1].date);
-                    grossHours = await this.get_loginhours(response[i].data);
+                    response[i].data.sort((a, b) => {
+                         const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+                         if (diff !== 0) return diff;
+                         return Number(a.login_status) - Number(b.login_status);
+                    });
+                    response[i].data = this.deduplicateEntries(response[i].data);
+                    dateLen = response[i]?.data.length;
+
+                    let reportDate = moment.tz(response[i]?.date, timezone).startOf('day');
+                    let now = moment().tz(timezone);
+                    let dayEnd = reportDate.isSame(now, 'day') ? now.toDate() : reportDate.endOf('day').toDate();
+                    grossHours = await this.get_loginhours(response[i].data, dayEnd);
                     login_stat = await this.login_count(response[i]?.data, 'login_count');
                     breakcount = await this.login_count(response[i]?.data, 'break_count');
                     first = response[i]?.data[0].date;
                     // first_converted_date = moment( first ).utcOffset( timezone ).format( "HH:mm" );
-                    first_converted_date = moment.tz(first, timezone).format("HH:mm");
+                    first_converted_date = moment.tz(first, timezone).format("HH:mm:ss");
                     // last = response[ i ]?.data[ dateLen - 1 ].date;
                     // last_converted_date = moment( last ).utcOffset( timezone ).format( "HH:mm" );
                     // last_converted_date = moment.tz( last, timezone ).format( "HH:mm" );
-                    last_login_date = await this.get_last_login_date(response[i].data)
+                    last_login_date = await this.get_last_login_date(response[i].data);
                     // console.log( last_login_date );
-                    last = last_login_date == '' ? '00:00' : last_login_date;
+                    last = last_login_date == '' ? '00:00:00' : last_login_date;
                     // console.log( last );
-                    if (last != '00:00') {
+                    if (last != '00:00:00') {
                          // last_converted_date = moment( last ).utcOffset( queryParams.timezone ).format( "HH:mm" );
-                         last_converted_date = moment.tz(last, timezone).format("HH:mm");
+                         last_converted_date = moment.tz(last, timezone).format("HH:mm:ss");
                     } else {
                          last_converted_date = last;
                     }
-                    total_break_hours = await this.get_breakhours(response[i].data);
+                    total_break_hours = await this.get_breakhours(response[i].data, dayEnd);
                     // console.log( 'break_hours', total_break_hours );
                     // grossHours = grossHours == undefined ? "0h 0m" : grossHours;
                     // total_break_hours = total_break_hours == undefined ? "0h 0m" : grossHours - total_break_hours;
-                    let non_billable_break_hours = await this.get_non_billable_breakhours(response[i].data);
-                    let net_login_hours = grossHours - non_billable_break_hours;
+                    let non_billable_break_hours = await this.get_non_billable_breakhours(response[i].data, dayEnd, breakCodeMap);
+                    // ✅ FIX Bug 9: advancedSearch path was missing Math.max guard — net login could go negative
+                    let net_login_hours = Math.max(0, grossHours - non_billable_break_hours);
                     // total_break_hours = await this.get_breakhours(response[i].data);
                     // console.log( 'break_hours', total_break_hours );
                     grossHours = grossHours == undefined ? "00:00" : grossHours;
                     // total_break_hours = total_break_hours == undefined ? "0h 0m" : grossHours - total_break_hours;
                     obj = {
                          date: response[i]?.date,
-                         total_login_hours: this.getTimeInHoursAndMinutes(grossHours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(grossHours),
+                         total_login_hours: this.getTimeInHoursAndMinutes(grossHours) || "00:00:00",
                          first_login_time: first_converted_date,
                          last_login_time: last_converted_date,
                          login_count: login_stat,
                          break_count: breakcount,
-                         total_break_hours: this.getTimeInHoursAndMinutes(total_break_hours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(total_break_hours),
-                         net_login: this.getTimeInHoursAndMinutes(net_login_hours) == undefined ? "00:00" : this.getTimeInHoursAndMinutes(net_login_hours),
+                         total_break_hours: this.getTimeInHoursAndMinutes(total_break_hours) || "00:00:00",
+                         net_login: this.getTimeInHoursAndMinutes(net_login_hours) || "00:00:00",
                          agent_uuid: response[i]?.agent_uuid,
                          agent: response[i]?.agent,
                          createdAt: response[i].createdAt
@@ -488,11 +559,6 @@ export class LoginlogoutreportService {
                     finalArray.push(obj);
                }
           }
-
-
-
-
-
 
           if (newresponse.length > 0) {
                count = newresponse.length;
@@ -539,19 +605,21 @@ export class LoginlogoutreportService {
      // }
 
      getTimeInHoursAndMinutes(diff) {
-          if (diff > 60e3) {
-               let minutes = Math.floor(diff / 60e3);
+          if (diff >= 0) {
+               let seconds = Math.floor(diff / 1000);
+               let minutes = Math.floor(seconds / 60);
                let hours = Math.floor(minutes / 60);
+               let remainingSeconds = seconds % 60;
                let remainingMinutes = minutes % 60;
 
-               // Pad single-digit minutes with leading zero
-               let formattedMinutes = remainingMinutes.toString().padStart(2, '0');
-
-               // Pad single-digit hours with leading zero if needed
+               // Pad with leading zeros
                let formattedHours = hours.toString().padStart(2, '0');
+               let formattedMinutes = remainingMinutes.toString().padStart(2, '0');
+               let formattedSeconds = remainingSeconds.toString().padStart(2, '0');
 
-               return `${formattedHours}:${formattedMinutes}`;
+               return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
           }
+          return "00:00:00";
      }
 
      /*
@@ -650,32 +718,47 @@ export class LoginlogoutreportService {
      //      return diff;
      // }
 
-     async get_loginhours(alldata) {
-          // Step 1: Filter only login/logout entries (not breaks)
-          let loginentries = alldata.filter(x => x.breakcode_uuid == undefined);
+     async get_loginhours(alldata, dayEnd) {
+          if (alldata.length === 0) return 0;
 
-          // If odd count → last login has no logout → ignore last one
-          if (loginentries.length < 2) return 0;
+          let totalDuration = 0;
+          let sessionStart = null;
+          let inSession = false;
+          let dayEndDate = new Date(dayEnd);
 
-          let effectiveHours = [];
+          for (let i = 0; i < alldata.length; i++) {
+               let entry = alldata[i];
 
-          // Step 2: Iterate in pairs (0-1, 2-3, 4-5...)
-          for (let j = 0; j < loginentries.length - 1; j += 2) {
-               try {
-                    let calculateHours = this.calculateHours(
-                         loginentries[j].date,
-                         loginentries[j + 1].date,
-                         "EH"
-                    );
-                    effectiveHours.push(calculateHours);
-               } catch (error: any) {
-                    Logger.error("Error in calculating effective hours", error.message);
+               // Login (status=0) - start of session or return from break
+               if (entry.login_status == 0 && !entry.breakcode_uuid) {
+                    if (!inSession) {
+                         sessionStart = entry.date;
+                         inSession = true;
+                    }
+               }
+               // Logout (status=2) - end of session
+               else if (entry.login_status == 2) {
+                    if (inSession && sessionStart) {
+                         let duration = this.calculateHours(sessionStart, entry.date);
+                         if (duration > 0) {
+                              totalDuration += duration;
+                         }
+                         sessionStart = null;
+                         inSession = false;
+                    }
                }
           }
-          // console.log("effectiveHourseffectiveHours", effectiveHours);
 
-          // Step 3: Sum all login durations
-          return effectiveHours.reduce((acc, v) => acc + v, 0);
+          // Handle case where agent is still logged in (no logout entry)
+          if (inSession && sessionStart) {
+               let boundEnd = new Date(sessionStart) > dayEndDate ? sessionStart : dayEndDate;
+               let duration = this.calculateHours(sessionStart, boundEnd);
+               if (duration > 0) {
+                    totalDuration += duration;
+               }
+          }
+
+          return totalDuration;
      }
 
 
@@ -708,41 +791,54 @@ export class LoginlogoutreportService {
 
      // }
 
-     async get_breakhours(alldata) {
-          // Step 1: Filter only break entries
-          let breakentries = alldata.filter(x =>
-               x.breakcode_uuid !== undefined && x.breakcode_uuid !== ""
-          );
+     async get_breakhours(alldata, dayEnd) {
+          let totalDuration = 0;
+          let dayEndDate = new Date(dayEnd);
 
-          // If no break entries → return 0
-          if (breakentries.length < 2) return 0;
+          for (let i = 0; i < alldata.length; i++) {
+               let currentEntry = alldata[i];
+               let nextEntry = alldata[i + 1];
 
-          // If odd → incomplete break → drop last entry
-          if (breakentries.length % 2 !== 0) {
-               breakentries.pop();
-          }
+               if (currentEntry.login_status == 1 && currentEntry.breakcode_uuid) {
+                    let breakEnd = (nextEntry && (nextEntry.login_status == 0 || nextEntry.login_status == 2))
+                         ? nextEntry.date
+                         : dayEndDate;
 
-          let effectiveHours = [];
-
-          // console.log("breakentries",breakentries);
-
-          // Step 2: Iterate in pairs (0-1, 2-3, 4-5…)
-          for (let j = 0; j < breakentries.length - 1; j += 2) {
-               try {
-                    let calculateHours = this.calculateHours(
-                         breakentries[j].date,
-                         breakentries[j + 1].date,
-                         "EH"
-                    );
-
-                    effectiveHours.push(calculateHours);
-               } catch (error: any) {
-                    Logger.error("Error calculating break hours", error.message);
+                    let duration = this.calculateHours(currentEntry.date, breakEnd);
+                    if (duration > 0) {
+                         totalDuration += duration;
+                    }
                }
           }
-          // console.log("effectiveHours", effectiveHours);
-          // Step 3: Sum all break durations
-          return effectiveHours.reduce((acc, v) => acc + v, 0);
+
+          return totalDuration;
+     }
+
+     async get_non_billable_breakhours(alldata, dayEnd, breakCodeMap: Record<string, string> = {}) {
+          let totalDuration = 0;
+          let dayEndDate = new Date(dayEnd);
+
+          for (let i = 0; i < alldata.length; i++) {
+               let currentEntry = alldata[i];
+               let nextEntry = alldata[i + 1];
+
+               if (currentEntry.login_status == 1 && currentEntry.breakcode_uuid) {
+                    // billable = "1" means non-billable (needs to be subtracted from gross)
+                    if (breakCodeMap[currentEntry.breakcode_uuid] === "1") {
+                         let breakEnd = (nextEntry && (nextEntry.login_status == 0 || nextEntry.login_status == 2))
+                              ? nextEntry.date
+                              : dayEndDate;
+
+                         let duration = this.calculateHours(currentEntry.date, breakEnd);
+                         if (duration > 0) {
+                              totalDuration += duration;
+                         }
+                    }
+               }
+          }
+
+          return totalDuration;
+
      }
 
      async get_last_login_date(alldates) {
@@ -773,7 +869,25 @@ export class LoginlogoutreportService {
                const { tenant_uuid, timezone } = queryParams;
 
                // Get summary data using existing method
-               const summaryResponse = await this.fetchLoginLogoutReportStatistics(queryParams);
+               const isAdvanced = Object.keys(queryParams).some(key => key.includes('|'));
+
+               let summaryResponse;
+               if (isAdvanced) {
+                    let paramsForAdvanced = { ...queryParams };
+                    const expectedByAdvancedSearch = new Set(['startDate', 'endDate', 'tenant_uuid', 'role', 'domain', 'timezone', 'limit', 'page']);
+
+                    // Remove any query parameter that is neither expected by advancedSearch nor a piped advanced field
+                    Object.keys(paramsForAdvanced).forEach(key => {
+                         if (!key.includes('|') && !expectedByAdvancedSearch.has(key)) {
+                              delete paramsForAdvanced[key];
+                         }
+                    });
+
+                    summaryResponse = await this.advancedSearch(paramsForAdvanced);
+               } else {
+                    summaryResponse = await this.fetchLoginLogoutReportStatistics(queryParams);
+               }
+
                const summaryData = summaryResponse.data || [];
 
                const exportData = [];
@@ -851,7 +965,7 @@ export class LoginlogoutreportService {
           }
           return "";
      }
-     
+
      getSubEventStatus(rowData) {
           if (rowData.login_status === "3") {
                return "Pause End";
@@ -864,6 +978,7 @@ export class LoginlogoutreportService {
           }
           return "";
      }
+
      getDuration(startDate, endDate) {
           if (!startDate || !endDate) return "";
 
@@ -890,11 +1005,11 @@ export class LoginlogoutreportService {
           ) {
                return this.getDuration(infoData[index - 1]?.date_time, rowData?.date_time);
           } else if (rowData.login_status === "2") {
-               // return this.getDuration(infoData[0]?.date_time, rowData?.date_time);
                const firstLogin = infoData.find(d => d.login_status === "0" && !d.breakcode?.length);
                const startTime = firstLogin ? firstLogin.date_time : infoData[0]?.date_time;
                return this.getDuration(startTime, rowData?.date_time);
-          }else if (rowData.login_status === "3") {
+               // return this.getDuration(infoData[0]?.date_time, rowData?.date_time);
+          } else if (rowData.login_status === "3") {
                for (let i = index - 1; i >= 0; i--) {
                     if (infoData[i].login_status === "4") {
                          return this.getDuration(infoData[i].date_time, rowData.date_time);
@@ -909,8 +1024,4 @@ export class LoginlogoutreportService {
           }
           return "";
      }
-
-
-
-
 }
