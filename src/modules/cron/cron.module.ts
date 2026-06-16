@@ -25,6 +25,7 @@ import { CdrsModule } from '../cdrs/cdrs.module';
 import { LoginlogoutreportModule } from '../login-logout-report/login-logout-report.module';
 import { CallQueueReportModule } from '../call-queue-report/call-queue-report.module';
 import { CommonModule } from '../common/common.module';
+
 @Module({
     imports: [
         MongooseModule.forFeature([
@@ -41,8 +42,6 @@ import { CommonModule } from '../common/common.module';
             { name: EmailTemplateSchema.name, schema: emailTemplateSchema },
             { name: UserSchema.name, schema: userSchema },
         ]),
-        RequestSchedulerModule,
-        DispositionModule,
         RequestSchedulerModule,
         DispositionModule,
         UserPerformanseReportModule,
