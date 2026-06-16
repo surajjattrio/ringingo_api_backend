@@ -114,4 +114,20 @@ export class CreateInboundCampaignDto {
     @ApiProperty()
     @IsOptional()
     agent_script_text: string
+
+     @ApiProperty()
+    @IsOptional()
+    email_config_uuid: string
+
+    @ApiProperty()
+    @IsOptional()
+    api_config_uuid: string
+
+    @ApiProperty()
+    @IsOptional()
+    email_type: string
+
+    @ApiProperty()
+    @IsOptional()
+    message_config_uuid: string
 }

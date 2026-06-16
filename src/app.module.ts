@@ -105,6 +105,9 @@ import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
 import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-dashboard.module";
 import { InboundCallDebugModule } from "./modules/inbound-call-debug/inbound-call-debug.module";
 import { MailScheduleModule } from './modules/mail-schedule/mail-schedule.module';
+import { EmailTemplateModule } from "./modules/email-template/email-template.module";
+import { ApiConfigurationModule } from "./modules/api-configuration/api-configuration.module";
+import { MessageConfigurationModule } from "./modules/message-configuration/message-configuration.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -206,6 +209,9 @@ import { MailScheduleModule } from './modules/mail-schedule/mail-schedule.module
     VoiceAlertModule,
     RealtimeDashboardModule,
     InboundCallDebugModule,
+    EmailTemplateModule,
+    ApiConfigurationModule,
+    MessageConfigurationModule,
     MailScheduleModule,
   ],
   controllers: [],

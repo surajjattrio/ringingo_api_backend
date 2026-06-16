@@ -159,6 +159,23 @@ export class BlendedCampaignSchema {
   @Prop()
   agent_script_text: String
 
+
+  @Prop()
+  email_config_uuid: string;
+
+  @Prop()
+  api_config_uuid: string;
+
+  @Prop()
+  email_type: string;
+
+  @Prop({
+    type: String,
+    default: "",
+    index: true,
+  })
+  message_config_uuid: string;
+
 }
 
 let blendedCampaignSchema = SchemaFactory.createForClass( BlendedCampaignSchema );

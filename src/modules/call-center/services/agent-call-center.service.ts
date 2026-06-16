@@ -3294,10 +3294,65 @@ return uniqueIds;
                         "outbound_call_queue_details": { "$first": "$outbound_call_queue_details_raw" },
                         "inbound_call_queue_details": { "$first": "$inbound_call_queue_details_raw" },
                         "blended_call_queue_details": { "$first": "$blended_call_queue_details_raw" },
+                         "outbound_email_config": { "$first": { "$arrayElemAt": ["$outbound_campaign.email_config_uuid", 0] } },
+                        "inbound_email_config": { "$first": { "$arrayElemAt": ["$inbound_campaign.email_config_uuid", 0] } },
+                        "blended_email_config": { "$first": { "$arrayElemAt": ["$blended_campaign.email_config_uuid", 0] } },
+                        "outbound_api_config": { "$first": { "$arrayElemAt": ["$outbound_campaign.api_config_uuid", 0] } },
+                        "inbound_api_config": { "$first": { "$arrayElemAt": ["$inbound_campaign.api_config_uuid", 0] } },
+                        "blended_api_config": { "$first": { "$arrayElemAt": ["$blended_campaign.api_config_uuid", 0] } },
+                        "outbound_email_type": { "$first": { "$arrayElemAt": ["$outbound_campaign.email_type", 0] } },
+                        "inbound_email_type": { "$first": { "$arrayElemAt": ["$inbound_campaign.email_type", 0] } },
+                        "blended_email_type": { "$first": { "$arrayElemAt": ["$blended_campaign.email_type", 0] } },
+                        "outbound_message_config": { "$first": { "$arrayElemAt": ["$outbound_campaign.message_config_uuid", 0] } },
+                        "inbound_message_config": { "$first": { "$arrayElemAt": ["$inbound_campaign.message_config_uuid", 0] } },
+                        "blended_message_config": { "$first": { "$arrayElemAt": ["$blended_campaign.message_config_uuid", 0] } },
                     }
                 },
                 {
-                    $project: { login_status: 1, inbound_campaign_details: 1, outbound_campaign_details: 1, dial_method: 1, campaign_type: 1, recording: 1, current_dial_level: 1, target_drop_percent: 1, max_dial_level: 1, minimum_calls: 1, number_masking: 1, blended_campaign_details: 1, blended_campaign_type: 1, blended_recording: 1, inbound_recording: 1, blended_dial_method: 1, blended_current_dial_level: 1, blended_target_drop_percent: 1, blended_max_dial_level: 1, blended_minimum_calls: 1, blended_number_masking: 1, inbound_number_masking: 1, wrap_up_time: 1, wrap_up_disposition: 1, blended_wrap_up_time: 1, blended_wrap_up_disposition: 1, inbound_wrap_up_time: 1, inbound_wrap_up_disposition: 1, auto_answer: 1, outbound_auto_answer: 1, inbound_auto_answer: 1, outbound_agent_script: 1, outbound_agent_script_text: 1, inbound_agent_script: 1, inbound_agent_script_text: 1, blended_agent_script: 1, blended_agent_script_text: 1, outbound_call_queue_details: 1, inbound_call_queue_details: 1, blended_call_queue_details: 1 }
+                    $project: { login_status: 1, inbound_campaign_details: 1, outbound_campaign_details: 1, dial_method: 1, campaign_type: 1, recording: 1, current_dial_level: 1, target_drop_percent: 1, max_dial_level: 1, minimum_calls: 1, number_masking: 1, blended_campaign_details: 1, blended_campaign_type: 1, blended_recording: 1, inbound_recording: 1, blended_dial_method: 1, blended_current_dial_level: 1, blended_target_drop_percent: 1, blended_max_dial_level: 1, blended_minimum_calls: 1, blended_number_masking: 1, inbound_number_masking: 1, wrap_up_time: 1, wrap_up_disposition: 1, blended_wrap_up_time: 1, blended_wrap_up_disposition: 1, inbound_wrap_up_time: 1, inbound_wrap_up_disposition: 1, auto_answer: 1, outbound_auto_answer: 1, inbound_auto_answer: 1, outbound_agent_script: 1, outbound_agent_script_text: 1, inbound_agent_script: 1, inbound_agent_script_text: 1, blended_agent_script: 1, blended_agent_script_text: 1, outbound_call_queue_details: 1, inbound_call_queue_details: 1, blended_call_queue_details: 1 , outbound_email_config: 1,
+                        inbound_email_config: 1,
+                        blended_email_config: 1,
+                        outbound_api_config: 1,
+                        inbound_api_config: 1,
+                        blended_api_config: 1,
+                        outbound_email_type: 1,
+                        inbound_email_type: 1,
+                        blended_email_type: 1,
+                        outbound_message_config: 1,
+                        inbound_message_config: 1,
+                        blended_message_config: 1,
+                         email_config_uuid: {
+                            $ifNull: [
+                                "$outbound_email_config",
+                                "$inbound_email_config",
+                                "$blended_email_config",
+                                ""
+                            ]
+                        }, api_config_uuid: {
+                            $ifNull: [
+                                "$outbound_api_config",
+                                "$inbound_api_config",
+                                "$blended_api_config",
+                                ""
+                            ]
+                        },
+                         email_type: {
+                            $ifNull: [
+                                "$outbound_email_type",
+                                "$inbound_email_type",
+                                "$blended_email_type",
+                                "none"
+                            ]
+                        }, message_config_uuid: {
+                            $ifNull: [
+                                "$outbound_message_config",
+                                "$inbound_message_config",
+                                "$blended_message_config",
+                                ""
+                            ]
+                        }
+
+                    }
                 }
             ]);
             console.log("response lookup query ", response);
@@ -3355,7 +3410,7 @@ return uniqueIds;
                             }
                         }
 
-                        obj = { campaign_name, uuid: data._id, dial_method, campaign_type, recording, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details };
+                        obj = { campaign_name, uuid: data._id, dial_method, campaign_type, recording, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details, email_config_uuid: data.email_config_uuid, api_config_uuid: data.api_config_uuid, email_type: data.email_type, message_config_uuid: data.message_config_uuid  };
                         finalArr.push(obj);
                     }
                 }
