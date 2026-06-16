@@ -172,8 +172,8 @@ export class GoogleSheetConfig {
 	/**
 	 * Exhaustion notification timestamp
 	 */
-	@Prop({ default: null })
-	exhaustion_email_sent_at: Date | null;
+	@Prop({ type: String, default: null })
+	exhaustion_email_sent_at: string | null;
 
 	/* ---------------------------------------------------------------------- */
 	/*                       Notification Recipients                          */
