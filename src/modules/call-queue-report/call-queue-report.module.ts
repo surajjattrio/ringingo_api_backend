@@ -11,6 +11,7 @@ import { cdrsSchema, CdrsSchema } from '../cdrs/schema/cdrs.schema';
         ]
     ) ],
     providers: [ CallQueueReportService ],
-    controllers: [ CallQueueReportController ]
+    controllers: [ CallQueueReportController ],
+    exports: [ CallQueueReportService ]
 } )
 export class CallQueueReportModule { }
