@@ -1,10 +1,16 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { randomUUID } from "crypto";
 import { Document } from "mongoose";
+import { EmailTemplateSchema } from "../../email-template/schema/email-template.schema";
 
 export type MailConfigurationDocument = MailConfigurationSchema & Document;
 
-@Schema({ collection : "mail_configuration" , timestamps : true })
+@Schema({
+    collection: "mail_configuration",
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+})
 
 export class MailConfigurationSchema {
 
@@ -12,25 +18,40 @@ export class MailConfigurationSchema {
     uuid: String
 
     @Prop()
-    host : String
+    name: String
 
     @Prop()
-    username : String
+    host: String
 
     @Prop()
-    password : String
+    username: String
 
     @Prop()
-    port : String
+    password: String
 
     @Prop()
-    from : String
+    port: String
 
     @Prop()
-    status : String
+    from: String
+
+    @Prop({ type: [String], default: [] })
+    to: string[];
 
     @Prop()
-    tenant_uuid : String
+    status: String
+
+    @Prop({ type: [String], default: [] })
+    template_ids: string[];
+
+    @Prop()
+    tenant_uuid: String
 }
 
 export const mailConfigurationSchema = SchemaFactory.createForClass(MailConfigurationSchema);
+
+mailConfigurationSchema.virtual('templates', {
+    ref: EmailTemplateSchema.name,
+    localField: 'template_ids',
+    foreignField: 'uuid',
+});

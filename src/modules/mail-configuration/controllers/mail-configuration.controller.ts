@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post, Put , Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Put, Delete, Query, Param } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
-import { getDecoraters, postDecoraters, putDecoraters } from "src/swagger/swagger_decoraters";
+import { getDecoraters, postDecoraters, putDecoraters, deleteDecoraters } from "src/swagger/swagger_decoraters";
 import { CreateMailConfigurationDto } from "../dto/create-mail-configuration.dto";
 import { MailConfigurationService } from "../services/mail-configuration.service";
 
@@ -37,38 +37,46 @@ export class MailConfigurationController {
     }
 
     @Get()
-    @getDecoraters("Retrieved single mail configuration successfully", "List single mail configuration using uuid")
+    @getDecoraters("Retrieved all mail configurations successfully", "List all mail configurations for a tenant")
+    findAll(@Query() queryParam) {
+        return this.mail_configuration.findAll(queryParam);
+    }
 
-    /*
-    @Usage               : List single mail configuration using uuid
-    @Method              : GET
-    @Param  uuid         : string
-    @Param ParseUUIDPipe : To validate uuid
-    @return object       : Full detail of particular uuid mail configuration
-    */
-
+    @Get("single")
+    @getDecoraters("Retrieved single mail configuration successfully", "Get single mail configuration using uuid or tenant_uuid")
     findOne(@Query() queryParam) {
         return this.mail_configuration.findOne(queryParam);
     }
 
-    @Put()
+    @Put(":uuid")
     @putDecoraters("Mail configuration update successfully", "Update single mail configuration using uuid")
-
-    /*
-    @Usage                          : Update single mail configuration using uuid
-    @Method                         : PUT
-    @Param host                     : string
-    @Param username                 : string
-    @Param password                 : string
-    @Param port                     : string
-    @Param status                   : integer [Default 0]
-    @Param ParseUUIDPipe            : To validate uuid
-    @return Object                  : Mail configuration updated successfully
-    */
-
-    update(@Body() createMailConfigurationDto: CreateMailConfigurationDto) {
-        return this.mail_configuration.update(createMailConfigurationDto);
+    update(@Param("uuid") uuid: string, @Body() body: any) {
+        body.uuid = uuid;
+        return this.mail_configuration.update(body);
     }
 
+    @Post("test-smtp")
+    @postDecoraters("SMTP connection tested successfully", "Test SMTP configuration credentials")
+    testSmtp(@Body() payload: any) {
+        return this.mail_configuration.testSmtp(payload);
+    }
 
+    @Get("allowed-templates/:config_uuid")
+    @getDecoraters("Retrieved allowed templates successfully", "Get all templates linked to a mail configuration")
+    getAllowedTemplates(@Param("config_uuid") config_uuid: string) {
+        return this.mail_configuration.getAllowedTemplates(config_uuid);
+    }
+
+    @Post("send-email")
+    @postDecoraters("Email sent successfully", "Send email using a mail configuration")
+    sendEmail(@Body() payload: any) {
+        return this.mail_configuration.sendEmail(payload);
+    }
+
+    @Delete()
+    @deleteDecoraters("Mail configuration deleted successfully", "Delete single mail configuration using uuid")
+    delete(@Query("uuid") uuid: string) {
+        return this.mail_configuration.delete(uuid);
+    }
 }
+

@@ -1,27 +1,42 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsIn, IsNotEmpty, IsNumberString, IsPort } from "class-validator";
+import { IsArray, IsEmail, IsIn, IsNotEmpty, IsOptional, IsNumberString, IsPort, IsString, IsUUID } from "class-validator";
 
 export class CreateMailConfigurationDto {
 
     @ApiProperty()
     @IsNotEmpty()
-    host : string
+    @IsString()
+    name: string
 
     @ApiProperty()
     @IsNotEmpty()
-    username : string
+    @IsString()
+    host: string
 
     @ApiProperty()
     @IsNotEmpty()
-    password : string
+    @IsString()
+    username: string
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    password: string
 
     @ApiProperty()
     @IsPort()
-    port : string
+    port: string
 
     @ApiProperty()
     @IsNotEmpty()
-    from : string
+    @IsEmail()
+    from: string
+
+    @ApiProperty({ type: [String], required: false })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    to: string[];
 
 
     /*@ApiProperty({description: '0 - Active | 1 - Inactive' , default : "0"})
@@ -29,6 +44,18 @@ export class CreateMailConfigurationDto {
     @IsIn(["0","1"])
     status : string*/
 
+    @ApiProperty({ type: [String] })
+    @IsArray()
+    @IsString({ each: true })
+    template_ids: string[];
+
+    @ApiProperty()
     @IsNotEmpty()
-    tenant_uuid : string
+    @IsString()
+    tenant_uuid: string
+
+    @ApiProperty()
+    @IsOptional()
+    @IsString()
+    uuid: string;
 }
