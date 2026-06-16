@@ -14,7 +14,8 @@ import { BreakcodeSchema, breakcodeSchema } from '../breakcode/schema/breakcode.
           ]
      ) ],
      providers: [ LoginlogoutreportService ],
-     controllers: [ LoginlogoutreportController ]
+     controllers: [ LoginlogoutreportController ],
+     exports: [ LoginlogoutreportService ]
 } )
 export class LoginlogoutreportModule { }
 

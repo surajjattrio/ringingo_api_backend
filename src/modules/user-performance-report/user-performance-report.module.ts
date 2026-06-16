@@ -28,7 +28,7 @@ import { breakcodeSchema, BreakcodeSchema } from '../breakcode/schema/breakcode.
     ])],
     controllers: [UserPerformanceReportController],
     providers: [UserPerformanceReportService],
-    exports: [MongooseModule]
+    exports: [MongooseModule,UserPerformanceReportService]
 })
 
 export class UserPerformanseReportModule { }

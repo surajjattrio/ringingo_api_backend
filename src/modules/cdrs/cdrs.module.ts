@@ -25,7 +25,7 @@ import {UserSchema,userSchema} from "src/modules/user/schema/user.schema"
     ])],
     controllers: [CdrsController],
     providers: [CdrsService, CdrsArchiveService, CDRSArchieveSearchService],
-    exports: [MongooseModule]
+    exports: [MongooseModule,CdrsService]
 })
 
 export class CdrsModule { }

@@ -104,7 +104,7 @@ import { WebhookModule } from "./modules/webhook/webhook.module";
 import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
 import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-dashboard.module";
 import { InboundCallDebugModule } from "./modules/inbound-call-debug/inbound-call-debug.module";
-
+import { MailScheduleModule } from './modules/mail-schedule/mail-schedule.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -206,6 +206,7 @@ import { InboundCallDebugModule } from "./modules/inbound-call-debug/inbound-cal
     VoiceAlertModule,
     RealtimeDashboardModule,
     InboundCallDebugModule,
+    MailScheduleModule,
   ],
   controllers: [],
   providers: [
