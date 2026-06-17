@@ -74,8 +74,8 @@ export class GoogleSheetConfig {
 	@Prop({ required: true, index: true })
 	user_group_uuid: string;
 
-	@Prop({ required: true, index: true })
-	campaign_uuid: string;
+	@Prop({ index: true, default: null })
+	campaign_uuid?: string;
 
 	@Prop({ required: true })
 	lead_status: string;
