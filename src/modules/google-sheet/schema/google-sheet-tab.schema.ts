@@ -61,6 +61,10 @@ export class GoogleSheetTab {
     /** When exhaustion was confirmed */
     @Prop({ default: null })
     exhausted_at: Date | null;
+
+    /** Exhaustion email notification timestamp */
+    @Prop({ type: String, default: null })
+    exhaustion_email_sent_at: string | null;
 }
 
 export const GoogleSheetTabSchema = SchemaFactory.createForClass(GoogleSheetTab);

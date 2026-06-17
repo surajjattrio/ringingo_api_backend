@@ -170,6 +170,8 @@ export class SampannGoogleSheetService {
         await this.checkExhaustedConfigsForNewTabs();
         // Always check for un-notified exhausted sheets first, regardless of active configs
         await this.checkGlobalExhaustion();
+        // Check for un-notified exhausted tabs
+        await this.checkTabExhaustion();
 
         const configs = await this.googleConfigModel
             .find({ all_tabs_exhausted: false })
@@ -1256,6 +1258,210 @@ export class SampannGoogleSheetService {
                     { exhaustion_email_sent_at: new Date().toISOString() }
                 );
             }
+        }
+    }
+
+    /**
+     * Finds individual tabs that have status = 'exhausted' but have not had
+     * their exhaustion email sent yet, and triggers the email notification.
+     */
+    private async checkTabExhaustion(): Promise<void> {
+        console.log('[GoogleSheetService] -> checkTabExhaustion() started. Searching for exhausted tabs...');
+
+        const query = {
+            status: 'exhausted',
+            $or: [
+                { exhaustion_email_sent_at: null },
+                { exhaustion_email_sent_at: "null" },
+                { exhaustion_email_sent_at: "" },
+                { exhaustion_email_sent_at: { $exists: false } }
+            ]
+        };
+
+        const exhaustedTabs = await this.googleSheetTabModel.find(query).lean<GoogleSheetTab[]>();
+        console.log(`[GoogleSheetService] Found ${exhaustedTabs.length} exhausted tabs needing emails.`);
+
+        if (!exhaustedTabs.length) return;
+
+        for (const tab of exhaustedTabs) {
+            console.log(`[GoogleSheetService] Tab "${tab.tab_name}" (gid: ${tab.sheet_gid}) is exhausted. Processing notification email.`);
+
+            const cfg = await this.googleConfigModel.findOne({ uuid: tab.config_uuid }).lean<GoogleSheetConfig>();
+            if (!cfg) {
+                console.warn(`[GoogleSheetService] No config found for tab ${tab.tab_name} (gid ${tab.sheet_gid}). Skipping email.`);
+                continue;
+            }
+
+            // If all tabs in the config are exhausted, do NOT send individual tab email (the global email will be sent instead)
+            if (cfg.all_tabs_exhausted) {
+                console.log(`[GoogleSheetService] Config ${cfg.uuid} has all tabs exhausted. Skipping individual email for tab "${tab.tab_name}" to avoid duplicate notifications.`);
+                await this.googleSheetTabModel.updateOne(
+                    { _id: (tab as any)._id },
+                    { $set: { exhaustion_email_sent_at: new Date().toISOString() } }
+                );
+                continue;
+            }
+
+            const recipients = cfg.notification_recipients ?? [];
+            const success = await this.sendTabExhaustionEmail(recipients, cfg, tab);
+
+            if (success) {
+                // Mark this tab as email-sent
+                await this.googleSheetTabModel.updateOne(
+                    { _id: (tab as any)._id },
+                    { $set: { exhaustion_email_sent_at: new Date().toISOString() } }
+                );
+                console.log(`[GoogleSheetService] Tab "${tab.tab_name}" marked as exhaustion email sent.`);
+            }
+        }
+    }
+
+    private async sendTabExhaustionEmail(recipients: NotificationRecipient[], cfg: GoogleSheetConfig, tab: GoogleSheetTab): Promise<boolean> {
+        try {
+            // Find Campaign to get email_config_uuid
+            let emailConfigUuid = null;
+
+            // Check outbound collection first
+            let campaign = await this.outbound_campaign.findOne({ uuid: cfg.campaign_uuid }).lean();
+
+            if (campaign) {
+                emailConfigUuid = (campaign as any).email_config_uuid;
+            } else {
+                // If not found in outbound, check blended collection
+                campaign = await this.blended_campaign.findOne({ uuid: cfg.campaign_uuid }).lean();
+                if (campaign) {
+                    emailConfigUuid = (campaign as any).email_config_uuid;
+                }
+            }
+
+            let mailConfig = null;
+            if (emailConfigUuid) {
+                mailConfig = await this.googleConfigModel.db.collection('mail_configuration').findOne({ uuid: emailConfigUuid });
+            }
+
+            if (!mailConfig) {
+                console.warn(`[GoogleSheetService] No valid mail_configuration found for campaign ${cfg.campaign_uuid}. Skipping tab exhaustion email.`);
+                return false;
+            }
+
+            const toListEmails = [];
+            if (recipients && recipients.length) {
+                toListEmails.push(...recipients.map(r => `"${r.name}" <${r.email}>`));
+            }
+            if (mailConfig.to && Array.isArray(mailConfig.to) && mailConfig.to.length) {
+                toListEmails.push(...mailConfig.to);
+            }
+
+            const toList = toListEmails.join(', ');
+
+            if (!toList) {
+                console.warn(`[GoogleSheetService] No recipients found for tab config ${cfg.uuid}. Skipping email.`);
+                return false;
+            }
+            console.log(`[GoogleSheetService] Sending tab exhaustion email using mailConfig:`, mailConfig);
+
+            // Decrypt the password stored in the database
+            let decodedPassword = mailConfig.password;
+            if (mailConfig.password) {
+                try {
+                    const decipher = createDecipheriv(process.env.ALGORITHM, process.env.ENCRYPTION_KEY, process.env.PASSWORD_LENGTH);
+                    decodedPassword = decipher.update(mailConfig.password, "hex", "utf-8");
+                    decodedPassword += decipher.final("utf8");
+                } catch (err: any) {
+                    console.warn(`[GoogleSheetService] Failed to decrypt email password, trying raw string...`);
+                }
+            }
+
+            const smtpConfig = {
+                host: mailConfig.host,
+                port: Number(mailConfig.port),
+                secure: Number(mailConfig.port) === 465,
+                auth: {
+                    user: mailConfig.username,
+                    pass: decodedPassword,
+                },
+                tls: {
+                    rejectUnauthorized: false
+                }
+            };
+
+            const fromEmail = mailConfig.from;
+            const transporter = nodemailer.createTransport(smtpConfig);
+
+            // Fetch template body if it exists
+            let customTemplateBody = null;
+            if (mailConfig.template_ids && mailConfig.template_ids.length > 0) {
+                const templateUuid = mailConfig.template_ids[0];
+                const msgConfig = await this.googleConfigModel.db.collection('email_template').findOne({ uuid: templateUuid });
+                if (msgConfig && msgConfig.body) {
+                    customTemplateBody = msgConfig.body;
+                }
+            }
+
+            // Build a single tab summary table
+            const tableHtml = `
+            <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+            <thead style="background:#2c3e50;color:#fff">
+                <tr>
+                <th>Sheet ID</th>
+                <th>Tab Name (Lead Group)</th>
+                <th>Total Leads Imported</th>
+                <th>Exhausted At</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                <td>${cfg.sheet_id}</td>
+                <td>${tab.tab_name}</td>
+                <td>${tab.total_leads}</td>
+                <td>${tab.exhausted_at
+                    ? tab.exhausted_at.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                    : new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
+                </tr>
+            </tbody>
+            </table>
+            `;
+
+            const subject = `[Dialler Alert] Google Sheet Tab "${tab.tab_name}" has been exhausted`;
+            let htmlBody = '';
+
+            if (customTemplateBody) {
+                if (customTemplateBody.includes('[TABLE]')) {
+                    htmlBody = customTemplateBody.replace('[TABLE]', tableHtml);
+                } else {
+                    htmlBody = customTemplateBody + '<br><br>' + tableHtml;
+                }
+            } else {
+                htmlBody = `
+                <html><body style="font-family:Arial,sans-serif;color:#333">
+                <h2 style="color:#c0392b">Tab Exhaustion Notification</h2>
+                <p>A tab in your Google Sheet integration has been fully churned.
+                No callable leads remain in this tab.</p>
+
+                ${tableHtml}
+
+                <p style="margin-top:20px;color:#555">
+                The dialler will proceed to the next pending tab if available.
+                </p>
+                <p style="font-size:12px;color:#aaa">
+                This is an automated message from the Dialler system.<br/>
+                Sent at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
+                </p>
+                </body></html>`;
+            }
+
+            await transporter.sendMail({
+                from: fromEmail,
+                to: toList,
+                subject,
+                html: htmlBody,
+            });
+
+            console.log(`[GoogleSheetService] Tab exhaustion email sent to: ${toList}`);
+            return true;
+        } catch (err: any) {
+            console.error('[GoogleSheetService] Failed to send tab exhaustion email:', err?.message ?? err);
+            return false;
         }
     }
 
