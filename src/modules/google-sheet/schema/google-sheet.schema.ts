@@ -63,6 +63,9 @@ export class GoogleSheet {
 	@Prop()
 	phone: string;
 
+	@Prop()
+	phone_number: string;
+
 	@Prop({ type: Number })
 	amount: number;
 

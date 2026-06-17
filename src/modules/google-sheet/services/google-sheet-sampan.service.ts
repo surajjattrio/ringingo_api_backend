@@ -32,37 +32,55 @@ export interface FieldMapping {
 }
 
 export const FIELD_ALIASES: Record<string, { type: 'string' | 'number' | 'date' | 'phone'; aliases: string[] }> = {
-    name: { type: 'string', aliases: ['name', 'fullname', 'customername', 'clientname', 'first'] },
-    phone: { type: 'phone', aliases: ['phone', 'phonenumber', 'mobile', 'mobilenumber', 'contact', 'contactnumber'] },
-    amount: { type: 'number', aliases: ['amount', 'price', 'totalamount', 'orderamount', 'totalprice', 'sellingprice'] },
-    shopifyCustomerId: { type: 'string', aliases: ['shopifycustomerid', 'customerid'] },
-    product1: { type: 'string', aliases: ['product', 'productname', 'product1', 'item', 'itemname'] },
-    address: { type: 'string', aliases: ['address', 'customeraddress', 'shippingaddress', 'billingaddress', 'location'] },
-    date: { type: 'date', aliases: ['date', 'orderdate', 'dateplaced'] },
-    time: { type: 'string', aliases: ['time', 'ordertime'] },
-    orderPlaced: { type: 'string', aliases: ['orderplaced', 'placed'] },
-    orderId: { type: 'string', aliases: ['orderid', 'id', 'ordernumber'] },
-    orderName: { type: 'string', aliases: ['ordername'] },
-    orderCreatedAt: { type: 'date', aliases: ['ordercreatedat', 'createdat'] },
-    mobileNumber: { type: 'string', aliases: ['mobilenumber', 'mobile'] },
-    count: { type: 'number', aliases: ['count', 'quantity', 'qty'] },
-    callingDate: { type: 'date', aliases: ['callingdate'] },
-    agentName: { type: 'string', aliases: ['agentname', 'agent'] },
-    finalConnected: { type: 'string', aliases: ['finalconnected', 'connected'] },
-    finalSellingPrice: { type: 'number', aliases: ['finalsellingprice', 'sellingprice'] },
-    finalMOP: { type: 'number', aliases: ['finalmop', 'mop'] },
-    finalOrderPlaced: { type: 'string', aliases: ['finalorderplaced'] },
-    callingStatus: { type: 'string', aliases: ['callingstatus', 'status'] },
-    finalRemark: { type: 'string', aliases: ['finalremark', 'remark', 'remarks'] },
-    extraRemarks: { type: 'string', aliases: ['extraremarks', 'notes'] },
-    orderDate: { type: 'date', aliases: ['orderdate'] },
-    month: { type: 'string', aliases: ['month'] },
-    churnCount: { type: 'number', aliases: ['churncount', 'churn'] },
-    lastCallDate: { type: 'date', aliases: ['lastcalldate'] },
-    countType: { type: 'string', aliases: ['counttype'] },
-    orderedMonth: { type: 'string', aliases: ['orderedmonth'] },
-    leadsMonth: { type: 'string', aliases: ['leadsmonth'] },
-    orderStatus: { type: 'string', aliases: ['orderstatus'] },
+    // ── Shopify / legacy sheet mappings (kept for backward compatibility) ──
+    name:                  { type: 'string', aliases: ['name', 'fullname', 'customername', 'clientname'] },
+    phone:                 { type: 'phone',  aliases: ['phone', 'mobile', 'contact', 'contactnumber'] },
+    amount:                { type: 'number', aliases: ['amount', 'price', 'totalamount', 'orderamount', 'totalprice', 'sellingprice'] },
+    shopifyCustomerId:     { type: 'string', aliases: ['shopifycustomerid', 'customerid'] },
+    product1:              { type: 'string', aliases: ['product', 'productname', 'product1', 'item', 'itemname'] },
+    address:               { type: 'string', aliases: ['address', 'customeraddress', 'shippingaddress', 'billingaddress', 'location'] },
+    date:                  { type: 'date',   aliases: ['date', 'orderdate', 'dateplaced'] },
+    time:                  { type: 'string', aliases: ['time', 'ordertime'] },
+    orderPlaced:           { type: 'string', aliases: ['orderplaced', 'placed'] },
+    orderId:               { type: 'string', aliases: ['orderid', 'id', 'ordernumber'] },
+    orderName:             { type: 'string', aliases: ['ordername'] },
+    orderCreatedAt:        { type: 'date',   aliases: ['ordercreatedat', 'createdat'] },
+    mobileNumber:          { type: 'string', aliases: ['mobilenumber'] },
+    count:                 { type: 'number', aliases: ['count', 'quantity', 'qty'] },
+    callingDate:           { type: 'date',   aliases: ['callingdate'] },
+    agentName:             { type: 'string', aliases: ['agentname', 'agent'] },
+    finalConnected:        { type: 'string', aliases: ['finalconnected', 'connected'] },
+    finalSellingPrice:     { type: 'number', aliases: ['finalsellingprice'] },
+    finalMOP:              { type: 'number', aliases: ['finalmop', 'mop'] },
+    finalOrderPlaced:      { type: 'string', aliases: ['finalorderplaced'] },
+    callingStatus:         { type: 'string', aliases: ['callingstatus', 'status'] },
+    finalRemark:           { type: 'string', aliases: ['finalremark', 'remark', 'remarks'] },
+    extraRemarks:          { type: 'string', aliases: ['extraremarks', 'notes'] },
+    orderDate:             { type: 'date',   aliases: ['orderdate'] },
+    month:                 { type: 'string', aliases: ['month'] },
+    churnCount:            { type: 'number', aliases: ['churncount', 'churn'] },
+    lastCallDate:          { type: 'date',   aliases: ['lastcalldate'] },
+    countType:             { type: 'string', aliases: ['counttype'] },
+    orderedMonth:          { type: 'string', aliases: ['orderedmonth'] },
+    leadsMonth:            { type: 'string', aliases: ['leadsmonth'] },
+    orderStatus:           { type: 'string', aliases: ['orderstatus'] },
+
+    // ── CRM-style headers → exact DB field name keys ──────────────────────
+    // These keys match MongoDB field names directly, so payload[field] = value
+    // writes to the correct field without any extra side-effects.
+    first_name:              { type: 'string', aliases: ['firstname', 'first name', 'first_name'] },
+    last_name:               { type: 'string', aliases: ['lastname', 'last name', 'last_name'] },
+    phone_number:            { type: 'phone',  aliases: ['phonenumber', 'phone number', 'phone_number', 'phoneno', 'phone no'] },
+    alternate_phone_number:  { type: 'phone',  aliases: ['alternatephonenumber', 'alternate phone number', 'alternate_phone_number', 'altphone', 'alternatephone', 'alt phone', 'alt phone number'] },
+    postal_code:             { type: 'string', aliases: ['postalcode', 'postal code', 'postal_code', 'zip', 'zipcode', 'pincode', 'pin code'] },
+    dob:                     { type: 'string', aliases: ['dateofbirth', 'date of birth', 'dob', 'date_of_birth', 'birthdate'] },
+    email:                   { type: 'string', aliases: ['email', 'emailaddress', 'email address', 'email_address'] },
+    city:                    { type: 'string', aliases: ['city'] },
+    state:                   { type: 'string', aliases: ['state'] },
+    province:                { type: 'string', aliases: ['province'] },
+    gender:                  { type: 'string', aliases: ['gender', 'sex'] },
+    description:             { type: 'string', aliases: ['description', 'desc'] },
+    campaign_name:           { type: 'string', aliases: ['campaignname', 'campaign name', 'campaign_name'] },
 };
 
 export const DEFAULT_FIELD_MAPPINGS: FieldMapping[] = [
@@ -740,12 +758,27 @@ export class SampannGoogleSheetService {
             for (const [field, config] of Object.entries(FIELD_ALIASES)) {
                 const matchedAlias = config.aliases.some(alias => {
                     const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    return cleanHeader === cleanAlias || cleanHeader.includes(cleanAlias);
+                    // Exact match first, then partial — prevents 'phone' matching 'phonenumber' incorrectly
+                    return cleanHeader === cleanAlias;
                 });
                 if (matchedAlias) {
                     mappings.push({ index: i, field, type: config.type });
                     matched = true;
                     break;
+                }
+            }
+            // Second pass: partial includes match (only if exact match not found)
+            if (!matched) {
+                for (const [field, config] of Object.entries(FIELD_ALIASES)) {
+                    const matchedAlias = config.aliases.some(alias => {
+                        const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return cleanHeader.includes(cleanAlias);
+                    });
+                    if (matchedAlias) {
+                        mappings.push({ index: i, field, type: config.type });
+                        matched = true;
+                        break;
+                    }
                 }
             }
             if (!matched) {
@@ -790,7 +823,7 @@ export class SampannGoogleSheetService {
                 payload.first_name = parts[0] || null;
                 payload.last_name = parts.length > 1 ? parts.slice(1).join(' ') : null;
             }
-            if (mapping.field === 'phone') {
+            if (mapping.field === 'phone' || mapping.field === 'phone_number' || mapping.field === 'phonenumber' || mapping.field.toLowerCase().replace(/[^a-z0-9]/g, '') === 'phonenumber') {
                 payload.phone_number = value;
                 payload.custom_phone_number = value;
             }
@@ -892,6 +925,7 @@ export class SampannGoogleSheetService {
                 tab_name: activeTab.tab_name,
                 row_number: row_number,
                 crm_lead_id: payload.lead_management_uuid,
+                phone_number: payload.phone_number,
                 google_sheet_status: "Imported",
                 lead_status: "New",
                 token: finalToken
