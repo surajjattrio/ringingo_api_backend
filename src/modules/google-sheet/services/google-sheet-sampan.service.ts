@@ -1398,11 +1398,16 @@ export class SampannGoogleSheetService {
                 }
             }
 
+            // Fetch tenant name
+            const tenant = await this.googleConfigModel.db.collection('tenant').findOne({ uuid: cfg.tenant_uuid });
+            const tenantName = tenant?.tenant_name || 'sampann';
+
             // Build a single tab summary table
             const tableHtml = `
             <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
             <thead style="background:#2c3e50;color:#fff">
                 <tr>
+                <th>Tenant Name</th>
                 <th>Sheet ID</th>
                 <th>Tab Name (Lead Group)</th>
                 <th>Total Leads Imported</th>
@@ -1411,6 +1416,7 @@ export class SampannGoogleSheetService {
             </thead>
             <tbody>
                 <tr>
+                <td>${tenantName}</td>
                 <td>${cfg.sheet_id}</td>
                 <td>${tab.tab_name}</td>
                 <td>${tab.total_leads}</td>
@@ -1564,6 +1570,7 @@ export class SampannGoogleSheetService {
             <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
             <thead style="background:#2c3e50;color:#fff">
                 <tr>
+                <th>Tenant Name</th>
                 <th>Sheet ID</th>
                 <th>Tab Name (Lead Group)</th>
                 <th>Total Leads Imported</th>
@@ -1573,6 +1580,7 @@ export class SampannGoogleSheetService {
             <tbody>
                 ${tabSummaryRows.map(r => `
                 <tr>
+                <td>${r.tenantName}</td>
                 <td>${r.sheetId}</td>
                 <td>${r.tabName}</td>
                 <td>${r.totalLeads}</td>
@@ -1627,10 +1635,13 @@ export class SampannGoogleSheetService {
         }
     }
 
-    private async buildExhaustionSummary(configs: GoogleSheetConfig[]): Promise<{ sheetId: string; tabName: string; totalLeads: number; exhaustedAt: string }[]> {
-        const rows: { sheetId: string; tabName: string; totalLeads: number; exhaustedAt: string }[] = [];
+    private async buildExhaustionSummary(configs: GoogleSheetConfig[]): Promise<{ tenantName: string; sheetId: string; tabName: string; totalLeads: number; exhaustedAt: string }[]> {
+        const rows: { tenantName: string; sheetId: string; tabName: string; totalLeads: number; exhaustedAt: string }[] = [];
 
         for (const cfg of configs) {
+            const tenant = await this.googleConfigModel.db.collection('tenant').findOne({ uuid: cfg.tenant_uuid });
+            const tenantName = tenant?.tenant_name || 'sampann';
+
             const tabs = await this.googleSheetTabModel
                 .find({ config_uuid: cfg.uuid })
                 .sort({ position: 1 })
@@ -1638,6 +1649,7 @@ export class SampannGoogleSheetService {
 
             for (const tab of tabs) {
                 rows.push({
+                    tenantName,
                     sheetId: cfg.sheet_id,
                     tabName: tab.tab_name,
                     totalLeads: tab.total_leads,
