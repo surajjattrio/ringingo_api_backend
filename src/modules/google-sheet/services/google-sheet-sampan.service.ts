@@ -1228,7 +1228,12 @@ export class SampannGoogleSheetService {
         // Find configs that are exhausted but haven't had an email sent yet
         const query = {
             all_tabs_exhausted: true,
-            exhaustion_email_sent_at: { $in: [null, "null", ""] }
+            $or: [
+                { exhaustion_email_sent_at: null },
+                { exhaustion_email_sent_at: "null" },
+                { exhaustion_email_sent_at: "" },
+                { exhaustion_email_sent_at: { $exists: false } }
+            ]
         };
         console.log('[GoogleSheetService] query:', JSON.stringify(query));
 
