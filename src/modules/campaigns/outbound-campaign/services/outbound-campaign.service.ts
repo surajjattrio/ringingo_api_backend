@@ -81,7 +81,7 @@ export class OutboundCampaignService {
             delete response.message;
             return response;
 
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Error in creating outbound campaign`, error.message);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, "Error in creating outbound campaign");
         }
@@ -158,7 +158,7 @@ export class OutboundCampaignService {
                         }
                     });
                 }
-            } catch (err) {
+            } catch (err:any) {
                 Logger.error(`Error notifying agents of campaign update: ${err.message}`);
             }
         }
@@ -548,7 +548,7 @@ export class OutboundCampaignService {
     */
 
     async resetLeads(resetLeadDto: ResetLeadDto) {
-        const { lead_group_uuid, campaign_uuid, tenant_uuid } = resetLeadDto;
+        const { lead_group_uuid, campaign_uuid, tenant_uuid, disposition_uuids } = resetLeadDto;
 
         //Check lead group status
         let leadGroupStatus = await this.lead_group.find({ uuid: lead_group_uuid, tenant_uuid, status: "0" }).count().exec();
@@ -561,34 +561,49 @@ export class OutboundCampaignService {
             logSuccessMsg: `Lead group reset successfully by uuid : ${lead_group_uuid} with campaign ${campaign_uuid} \n`
         }
 
-        let result: any = await this.leads_in_queue.deleteMany({ $and: [{ lead_group_uuid }, { campaign_uuid }, { tenant_uuid }] }).exec();
-        if (result.deletedCount == 0 && result.deletedCount == 0) {
-            Logger.error(`${logMessages.logErrorMsg} \n`);
-        } else {
-            Logger.debug("Leads deleted successfully from queue , on action of reset lead \n");
-        }
-        //Add all leads in queue if it exist in outbound_campaign_dialable_status collection
+        //Add all leads in queue based on mode
         try {
-            let getAllCampaignDialable = await this.outbound_campaign_diallable_status.find({ outbound_campaign_uuid: campaign_uuid }, { disposition_uuid: 1, outbound_campaign_disposition_uuid: 1, _id: 0 }).exec();
-
-            let leadStatusArr = [], lead_status;
-            if (getAllCampaignDialable.length > 0) {
-                getAllCampaignDialable.map((data) => {
-                    lead_status = data.disposition_uuid == undefined ? data.outbound_campaign_disposition_uuid : data.disposition_uuid;
-                    leadStatusArr.push(lead_status);
-                });
+            let result: any;
+            let allLeads: any;
+            if (disposition_uuids && disposition_uuids.length > 0) {
+                // Selective: only remove + re-add leads whose disposition was selected — other queued leads stay untouched
+                allLeads = await this.lead_management.find({ lead_group_uuid, tenant_uuid, in_dnc: "1", campaign_uuid, lead_status: { $in: disposition_uuids } }).exec();
+                const lmUuids = allLeads.map((l: any) => l.lead_management_uuid);
+                await this.leads_in_queue.deleteMany({ lead_management_uuid: { $in: lmUuids }, lead_group_uuid, campaign_uuid, tenant_uuid }).exec();
+                Logger.debug(`[resetLeads] selective mode — ${allLeads.length} leads for ${disposition_uuids.length} disposition(s)`);
             } else {
-                Logger.warn(`No dialable found`);
-            }
+                // Original dialable-filter path: delete ALL then re-add dialable leads
+                result = await this.leads_in_queue.deleteMany({ $and: [{ lead_group_uuid }, { campaign_uuid }, { tenant_uuid }] }).exec();
+                if (result.deletedCount == 0 && result.deletedCount == 0) {
+                    Logger.error(`${logMessages.logErrorMsg} \n`);
+                } else {
+                    Logger.debug("Leads deleted successfully from queue , on action of reset lead \n");
+                }
+        //Add all leads in queue if it exist in outbound_campaign_dialable_status collection
+                let getAllCampaignDialable = await this.outbound_campaign_diallable_status.find({ outbound_campaign_uuid: campaign_uuid }, { disposition_uuid: 1, outbound_campaign_disposition_uuid: 1, _id: 0 }).exec();
+
+                let leadStatusArr = [], lead_status;
+                if (getAllCampaignDialable.length > 0) {
+                    getAllCampaignDialable.map((data) => {
+                        lead_status = data.disposition_uuid == undefined ? data.outbound_campaign_disposition_uuid : data.disposition_uuid;
+                        leadStatusArr.push(lead_status);
+                    });
+                } else {
+                    Logger.warn(`No dialable found for outbound campaign ${campaign_uuid} — adding all eligible leads`);
+                }
             //campaign_uuid removed from condition
-            let allLeads: any = await this.lead_management.find({ lead_group_uuid, tenant_uuid, in_dnc: "1", campaign_uuid, lead_status: { $in: leadStatusArr } }).exec();
+                // If no dialable statuses configured, fall back to all non-DNC leads (same behaviour as blended with no filter)
+                const leadQuery: any = { lead_group_uuid, tenant_uuid, in_dnc: "1", campaign_uuid };
+                if (leadStatusArr.length > 0) leadQuery.lead_status = { $in: leadStatusArr };
+                allLeads = await this.lead_management.find(leadQuery).exec();
             //allLeads = await this.addAllLeadsInQueue(allLeads, tenant_uuid, campaign_uuid);
+            }
 
             result = await this.leads_in_queue.insertMany(allLeads, { ordered: false });
             await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, campaign_uuid)
             Logger.debug("Added leads in queue , on action of reset lead \n");
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `Lead group reset successfully`);
-        } catch (error) {
+        } catch (error: any) {
             Logger.debug("Error in adding lead in queue", error.message);
             //return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Lead not found`);
         }
@@ -664,7 +679,7 @@ export class OutboundCampaignService {
             await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, campaign_uuid);
 
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `Added ${newLeadsToAdd.length} new leads to queue`);
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`[googleSheetLeadsReset] Failed for campaign ${campaign_uuid}: ${error.message}`, error.stack);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.INTERNAL_SERVER_ERROR, `googleSheetLeadsReset failed: ${error.message}`);
         }
@@ -766,7 +781,7 @@ export class OutboundCampaignService {
                 );
             }
 
-        } catch (error) {
+        } catch (error: any) {
             Logger.error("Unable to delete lead group", error.message);
 
             return this.commonDbFn.sendResponseWithMessage(
@@ -804,7 +819,7 @@ export class OutboundCampaignService {
             let finalResult = [...outboundCampaignResult, ...voiceBroadcastResult];
             let statusCode = finalResult.length > 0 ? HttpStatus.OK : HttpStatus.NOT_FOUND;
             return this.commonDbFn.sendResponseWithMessage(statusCode, finalResult);
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Error in fetching outbound campaign & voice broadcast`, error.message);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Unable to fetch list`);
         }
@@ -826,7 +841,7 @@ export class OutboundCampaignService {
                 await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, campaign_uuid)
                 Logger.debug("Leads deleted successfully from queue , on action of reset lead \n");
             }
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Error in catch block ==> deleteQueues()`, error.message);
         }
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `Lead deleted successfully`);
@@ -847,11 +862,190 @@ export class OutboundCampaignService {
             // return { message: 'Campaign dial level updated successfully.' };
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `Campaign dial level updated successfully.`);
 
-        } catch (error) {
+        } catch (error: any) {
             // Handle errors and return error response
             // console.error( error );
             // return { error: 'Failed to update campaign dial level.' };
             Logger.error(`Failed to update campaign dial level.`, error.message);
+        }
+    }
+
+    /*
+    @Usage         : Get campaign-wise lead group disposition breakdown for re-churning
+    @Param queryParams : { tenant_uuid, role, status? }
+    @return Array  : Campaigns with nested lead groups and per-disposition counts
+    */
+
+    async getLeadChurningData(queryParams: any) {
+        const { tenant_uuid, status, search } = queryParams;
+        const perPage = Math.min(Number(queryParams.limit) || 10, 100);
+        const currentPage = Math.max(Number(queryParams.page) || 1, 1);
+        const skip = perPage * (currentPage - 1);
+
+        try {
+            // 1. Build campaign filter with search + status support
+            const campaignQuery: any = { tenant_uuid };
+            if (status === 'active') campaignQuery.status = '0';
+            else if (status === 'inactive') campaignQuery.status = '1';
+            if (search) campaignQuery.name = { $regex: search, $options: 'i' };
+
+            // 2. Count total + fetch paginated campaigns in parallel
+            const [totalCount, campaigns] = await Promise.all([
+                this.outbound_campaign.countDocuments(campaignQuery).exec(),
+                this.outbound_campaign
+                    .find(campaignQuery, { uuid: 1, name: 1, status: 1, _id: 0 })
+                    .skip(skip).limit(perPage).lean().exec(),
+            ]) as [number, any[]];
+
+            if (!campaigns.length) {
+                return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, [], totalCount);
+            }
+
+            const campaignUuids = campaigns.map((c: any) => c.uuid as string);
+
+            // 3. Fetch all lead groups for these campaigns
+            const leadGroups: any[] = await this.lead_group
+                .find(
+                    { campaign_uuid: { $in: campaignUuids }, tenant_uuid },
+                    { uuid: 1, name: 1, campaign_uuid: 1, status: 1, _id: 0 }
+                )
+                .lean()
+                .exec() as any[];
+
+            const leadGroupUuids = leadGroups.map((lg: any) => lg.uuid as string);
+
+            if (!leadGroupUuids.length) {
+                const result = campaigns.map((c: any) => ({
+                    campaign_uuid: c.uuid,
+                    campaign_name: c.name,
+                    status: c.status,
+                    lead_groups: [],
+                }));
+                return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, result, totalCount);
+            }
+
+            // All 4 aggregations only depend on leadGroupUuids — run in parallel
+            const [leadBreakdown, leadTotals, queueTotals, queueBreakdown] = await Promise.all([
+                this.lead_management.aggregate([
+                    { $match: { lead_group_uuid: { $in: leadGroupUuids }, tenant_uuid } },
+                    { $group: { _id: { lg: '$lead_group_uuid', status: '$lead_status' }, lead_count: { $sum: 1 } } },
+                ]),
+                this.lead_management.aggregate([
+                    { $match: { lead_group_uuid: { $in: leadGroupUuids }, tenant_uuid } },
+                    { $group: { _id: '$lead_group_uuid', total: { $sum: 1 } } },
+                ]),
+                this.leads_in_queue.aggregate([
+                    { $match: { lead_group_uuid: { $in: leadGroupUuids }, tenant_uuid, lead_sent: "1" } },
+                    { $group: { _id: '$lead_group_uuid', queue_count: { $sum: 1 } } },
+                ]),
+                this.leads_in_queue.aggregate([
+                    { $match: { lead_group_uuid: { $in: leadGroupUuids }, tenant_uuid, lead_sent: "1" } },
+                    {
+                        $lookup: {
+                            from: 'lead_management',
+                            localField: 'lead_management_uuid',
+                            foreignField: 'lead_management_uuid',
+                            as: 'lead_info',
+                        },
+                    },
+                    { $unwind: { path: '$lead_info', preserveNullAndEmptyArrays: true } },
+                    {
+                        $group: {
+                            _id: {
+                                lg: '$lead_group_uuid',
+                                status: '$lead_info.lead_status',
+                            },
+                            queue_count: { $sum: 1 },
+                        },
+                    },
+                ]),
+            ]) as [any[], any[], any[], any[]];
+
+            // Disposition lookup depends on leadBreakdown result — single round after the parallel block
+            const dispositionUuids = [...new Set(leadBreakdown.map((d: any) => d._id.status).filter(Boolean))];
+            const dispositions: any[] = dispositionUuids.length
+                ? await this.disposition
+                    .find(
+                        { disposition_uuid: { $in: dispositionUuids } },
+                        { disposition_uuid: 1, name: 1, code: 1, _id: 0 }
+                    )
+                    .lean()
+                    .exec() as any[]
+                : [];
+
+            const dispositionMap = new Map<string, any>(
+                dispositions.map((d: any) => [d.disposition_uuid as string, d])
+            );
+
+            // 8. Build lookup maps
+            const leadTotalMap = new Map<string, number>(
+                leadTotals.map((l: any) => [l._id as string, l.total as number])
+            );
+            const queueTotalMap = new Map<string, number>(
+                queueTotals.map((q: any) => [q._id as string, q.queue_count as number])
+            );
+
+            const lgLeadMap = new Map<string, Array<{ status: string; count: number }>>();
+            for (const item of leadBreakdown) {
+                const key = item._id.lg as string;
+                if (!lgLeadMap.has(key)) lgLeadMap.set(key, []);
+                lgLeadMap.get(key)!.push({ status: item._id.status as string, count: item.lead_count as number });
+            }
+
+            const lgQueueMap = new Map<string, Map<string, number>>();
+            for (const item of queueBreakdown) {
+                const lgKey = item._id.lg as string;
+                const statusKey = item._id.status as string;
+                if (!lgQueueMap.has(lgKey)) lgQueueMap.set(lgKey, new Map());
+                lgQueueMap.get(lgKey)!.set(statusKey, item.queue_count as number);
+            }
+
+            // 9. Group lead groups by campaign
+            const lgByCampaign = new Map<string, any[]>();
+            for (const lg of leadGroups) {
+                const campKey = lg.campaign_uuid as string;
+                if (!lgByCampaign.has(campKey)) lgByCampaign.set(campKey, []);
+
+                const lgLeads = lgLeadMap.get(lg.uuid as string) || [];
+                const lgQueue = lgQueueMap.get(lg.uuid as string) || new Map<string, number>();
+                const totalLeads = leadTotalMap.get(lg.uuid as string) || 0;
+                const queueTotal = queueTotalMap.get(lg.uuid as string) || 0;
+
+                const dispositionsData = lgLeads.map((item) => {
+                    const disp = item.status ? dispositionMap.get(item.status) : undefined;
+                    const queueCount = lgQueue.get(item.status ?? null) || 0;
+                    return {
+                        disposition_uuid: item.status ?? '',
+                        disposition_name: disp?.name || 'Unknown',
+                        disposition_code: disp?.code || '',
+                        queue_count: queueCount,
+                        lead_count: item.count,
+                    };
+                });
+
+                lgByCampaign.get(campKey)!.push({
+                    lead_group_uuid: lg.uuid,
+                    lead_group_name: lg.name,
+                    status: lg.status,
+                    queue_count: queueTotal,
+                    total_leads: totalLeads,
+                    dispositions: dispositionsData,
+                });
+            }
+
+            // 10. Build final response
+            const result = campaigns.map((c: any) => ({
+                campaign_uuid: c.uuid,
+                campaign_name: c.name,
+                status: c.status,
+                lead_groups: lgByCampaign.get(c.uuid as string) || [],
+            }));
+
+            return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, result, totalCount);
+
+        } catch (error: any) {
+            Logger.error('Error in getLeadChurningData', error.message);
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching lead churning data');
         }
     }
 }

@@ -69,6 +69,19 @@ export class OutboundCampaignController {
         return this.outbound_campaign.findAll({...queryParam, ...body});
     }
 
+    @Get('lead-churning-data')
+    @getDecoraters("Retrieved lead churning data successfully", "Get campaign-wise lead group disposition breakdown for re-churning")
+
+    /*
+    @Usage  : Get all campaigns with their lead groups and per-disposition breakdown
+    @Method : GET
+    @return : Array of campaigns with nested lead groups and dispositions
+    */
+
+    getLeadChurningData(@Query() queryParam) {
+        return this.outbound_campaign.getLeadChurningData(queryParam);
+    }
+
     @Get(':uuid')
     @getDecoraters("Retrieved single outbound campaign successfully", "List single outbound campaign using uuid")
 
