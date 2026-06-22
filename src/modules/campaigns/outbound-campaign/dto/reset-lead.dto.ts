@@ -16,5 +16,9 @@ export class ResetLeadDto {
 
     @ApiProperty()
     @IsOptional()
-    disposition_uuid?: string;   // 👈 optional filter
+    disposition_uuid?: string;
+
+    @ApiProperty()
+    @IsOptional()
+    disposition_uuids?: string[];
 }
