@@ -69,6 +69,19 @@ export class BlendedCampaignController {
         return this.blended_campaign.findAll(queryParam);
     }
 
+    @Get('lead-churning-data')
+    @getDecoraters("Retrieved lead churning data successfully", "Get campaign-wise lead group disposition breakdown for re-churning")
+
+    /*
+    @Usage  : Get all blended campaigns with their lead groups and per-disposition breakdown
+    @Method : GET
+    @return : Array of campaigns with nested lead groups and dispositions
+    */
+
+    getLeadChurningData(@Query() queryParam) {
+        return this.blended_campaign.getLeadChurningData(queryParam);
+    }
+
     @Get(':uuid')
     @getDecoraters("Retrieved single blended campaign successfully", "List single blended campaign using uuid")
 
