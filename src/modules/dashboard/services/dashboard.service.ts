@@ -1180,7 +1180,7 @@ export class DashboardService {
     }
     
     async getTenantDashboardData(queryParams: any) {
-        const { tenant_uuid, filter = "daily", timezone = "Asia/Kolkata" } = queryParams;
+        const { tenant_uuid, filter = "daily", timezone = "Asia/Kolkata", agent_uuid, campaign_uuid } = queryParams;
         
         let startDate = moment.tz(timezone);
         if (filter === "daily") {
@@ -1192,10 +1192,17 @@ export class DashboardService {
         }
         const endDate = moment.tz(timezone);
 
-        const matchRules = {
+        // Build match rules — optionally scope to a specific agent / campaign
+        const matchRules: any = {
             tenant_uuid,
             createdAt: { $gte: startDate.toDate(), $lte: endDate.toDate() }
         };
+        if (agent_uuid) {
+            matchRules.user_uuid = agent_uuid;
+        }
+        if (campaign_uuid) {
+            matchRules.campaign_uuid = campaign_uuid;
+        }
 
         const result = await this.cdrs.aggregate([
             { $match: matchRules },
@@ -1359,8 +1366,15 @@ export class DashboardService {
         // AHT Calculation
         const talkSec = (kpiBase.billsecond || 0) + (kpiBase.hold_time || 0);
         const ahtSec = talkSec + (kpiBase.wrap_up_time || 0);
+        const totalCdrCalls = (inb.total_calls || 0) + (outb.total_calls || 0);
 
-        const stateMetrics = await this.getAgentStateMetrics(tenant_uuid, startDate, endDate, talkSec);
+        // Agent state metrics (idle / pause / break / ACW) are agent-scoped:
+        // they come from agent_login_logout_report & idle_state_agent which have
+        // no campaign dimension.  We always compute them for the selected agent
+        // (or all agents when no agent filter), regardless of any campaign filter.
+        // CDR-based KPIs (wait/hold/ring/aht/wrap-up) are already correctly 0
+        // when the CDR aggregation returns no matching calls.
+        const stateMetrics = await this.getAgentStateMetrics(tenant_uuid, startDate, endDate, talkSec, agent_uuid);
 
         const formattedResponse = {
             kpis: {
@@ -1392,14 +1406,19 @@ export class DashboardService {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    private async getAgentStateMetrics(tenant_uuid: string, startDate: any, endDate: any, totalCdrTalkSec: number): Promise<{ idle: number, pause: number, break: number, acw: number }> {
+    private async getAgentStateMetrics(tenant_uuid: string, startDate: any, endDate: any, totalCdrTalkSec: number, agentUuid?: string): Promise<{ idle: number, pause: number, break: number, acw: number }> {
         try {
             const start = startDate.toDate();
             const end = endDate.toDate();
 
-            // 1. Get ALL agents for this tenant (not just active ones)
-            const agents = await this.user.find({ tenant_uuid }).select("uuid").lean();
-            const agentUuids = agents.map(a => a.uuid);
+            // 1. Get agents — if a specific agent_uuid is provided, scope to only that agent
+            let agentUuids: string[];
+            if (agentUuid) {
+                agentUuids = [agentUuid];
+            } else {
+                const agents = await this.user.find({ tenant_uuid }).select("uuid").lean();
+                agentUuids = agents.map((a: any) => a.uuid);
+            }
             if (agentUuids.length === 0) return { idle: 0, pause: 0, break: 0, acw: 0 };
 
             // 2. Fetch login/logout and state records
