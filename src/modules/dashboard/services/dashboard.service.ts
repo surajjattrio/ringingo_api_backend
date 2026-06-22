@@ -1280,8 +1280,7 @@ export class DashboardService {
                                 _id: null,
                                 total_calls: { $sum: 1 },
                                 connected_calls: { $sum: { $cond: [{ $gt: [{ $toDouble: "$billsecond" }, 0] }, 1, 0] } },
-                                missed_calls: { $sum: { $cond: [{ $eq: ["$call_state", "missed"] }, 1, 0] } },
-                                dropped_calls: { $sum: { $cond: [{ $eq: ["$call_state", "drop"] }, 1, 0] } }
+                                dropped_calls: { $sum: { $cond: [{ $eq: ["$call_state", "missed"] }, 1, 0] } }
                             }
                         }
                     ],
