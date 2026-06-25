@@ -55,6 +55,15 @@ export class CallQueueSchema {
     @Prop()
     role: string
 
+    @Prop()
+    failover_routing_type: String
+
+    @Prop()
+    failover_routing_options: String
+
+    @Prop()
+    fail_over_routing_name: String
+
 }
 
 let callQueueSchema = SchemaFactory.createForClass(CallQueueSchema);

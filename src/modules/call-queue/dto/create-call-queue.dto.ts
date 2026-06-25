@@ -78,4 +78,16 @@ export class CreateCallQueueDto {
     @IsOptional()
     @IsUUID()
     manager_uuid : string
+
+    @ApiProperty()
+    @IsOptional()
+    failover_routing_type: string
+
+    @ApiProperty()
+    @IsOptional()
+    failover_routing_options: string
+
+    @ApiProperty()
+    @IsOptional()
+    fail_over_routing_name: string
 }
