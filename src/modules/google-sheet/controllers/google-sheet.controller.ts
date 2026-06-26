@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Req, Param, Delete, Headers, Query, Res } from '@nestjs/common';
 import { Public } from 'src/global_constant';
 import { GoogleSheetService } from '../services/google-sheet.service';
-import { SampannGoogleSheetService } from '../services/google-sheet-sampan.service';
+import { SampannGoogleSheetService } from '../services/google-sheet-sampan_new.service';
 import { CreateGoogleCredentialDto } from '../dto/google-credential.dto';
 // import { GoogleSheetProducer } from '../services/google-sheet.producer';
 // import { GoogleSheetHealthService } from '../services/google-sheet.health';
@@ -20,6 +20,21 @@ export class GoogleSheetController {
     async getData() {
         await this.sheetsService.fetchSheetData();
         return { statusCode: 201, message: 'Google Sheet sync completed' };
+    }
+
+    /**
+     * Triggers parallel sync of all tabs across every active Google Sheet configuration.
+     * Idempotent — safe to call multiple times without creating duplicates.
+     */
+    @Public()
+    @Get('/auric/sync-all-tabs')
+    async syncAllTabs() {
+        const result = await this.sheets_service.syncAllTabsFromAllActiveSheets();
+        return {
+            statusCode: 200,
+            message: 'Parallel tab sync completed',
+            data: result,
+        };
     }
 
     /** Save Google Service Account credentials */

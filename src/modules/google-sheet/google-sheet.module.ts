@@ -3,7 +3,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GoogleSheetController } from './controllers/google-sheet.controller';
 import { GoogleSheetService } from './services/google-sheet.service';
-import { SampannGoogleSheetService } from './services/google-sheet-sampan.service';
+import { SampannGoogleSheetService } from './services/google-sheet-sampan_new.service';
 // import { GoogleSheetProducer } from './services/google-sheet.producer';
 // import { GoogleSheetConsumer } from './services/google-sheet.consumer';
 // import { GoogleSheetHealthService } from './services/google-sheet.health';
@@ -12,6 +12,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { GoogleSheetSchema, GoogleSheet } from 'src/modules/google-sheet/schema/google-sheet.schema';
 import { GoogleSheetLead, GoogleSheetLeadSchema } from 'src/modules/google-sheet/schema/google-sheet-leads.schema';
 import { GoogleSheetConfigSchema, GoogleSheetConfig } from './schema/google-sheet-config.schema';
+import { LeadsInQueueDocument, LeadsInQueueSchema, leadsInQueueSchema } from 'src/modules/lead-management/schema/leads-in-queue.schema';
 import { GoogleCredential, GoogleCredentialSchema } from './schema/google-credential.schema';
 import { GoogleSheetTab, GoogleSheetTabSchema } from './schema/google-sheet-tab.schema';
 import { LeadManagementModule } from 'src/modules/lead-management/lead-management.module';
@@ -49,6 +50,7 @@ import { BlendedCampaignModule } from '../campaigns/blended-campaign/blended-cam
             { name: GoogleCredential.name, schema: GoogleCredentialSchema },
             { name: GoogleSheetTab.name, schema: GoogleSheetTabSchema },
             { name: GoogleSheetLead.name, schema: GoogleSheetLeadSchema },
+            { name: LeadsInQueueSchema.name, schema: leadsInQueueSchema },
         ]),
         LeadManagementModule,
         LeadGroupModule,

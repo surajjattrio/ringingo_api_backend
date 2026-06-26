@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { GoogleSheetService } from './google-sheet.service';
-import { SampannGoogleSheetService } from './google-sheet-sampan.service';
+import { SampannGoogleSheetService } from './google-sheet-sampan_new.service';
 
 @Injectable()
 export class GoogleSheetCron {
@@ -13,16 +13,16 @@ export class GoogleSheetCron {
     ) { }
 
     // Runs at every 3rd minute.
-    @Cron('*/3 * * * *')
+    @Cron('*/1 * * * *')
     async handleCron() {
-        if (process.env.CRON_SETUP === 'false') {
+        if (process.env.CRON_SETUP === 'true') {
             return this.logger.log('GoogleSheetCron is disabled via env variable');
         }
 
         this.logger.log('[GoogleSheetCron] Cron job started');
 
         const results = await Promise.allSettled([
-            this.service.callGoogleSheetCron(),
+            // this.service.callGoogleSheetCron(),
             this.sampann_service.callGoogleSheetCron(),
         ]);
 

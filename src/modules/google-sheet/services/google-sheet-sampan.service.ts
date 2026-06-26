@@ -20,6 +20,7 @@ import { GoogleSheetConfig, GoogleSheetConfigDocument, NotificationRecipient } f
 import { GoogleSheetTab, GoogleSheetTabDocument } from '../schema/google-sheet-tab.schema';
 import { CreateGoogleCredentialDto } from '../dto/google-credential.dto';
 import { ResetLeadDto } from 'src/modules/campaigns/outbound-campaign/dto/reset-lead.dto';
+import { LeadsInQueueDocument, LeadsInQueueSchema } from 'src/modules/lead-management/schema/leads-in-queue.schema';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -33,54 +34,54 @@ export interface FieldMapping {
 
 export const FIELD_ALIASES: Record<string, { type: 'string' | 'number' | 'date' | 'phone'; aliases: string[] }> = {
     // ── Shopify / legacy sheet mappings (kept for backward compatibility) ──
-    name:                  { type: 'string', aliases: ['name', 'fullname', 'customername', 'clientname'] },
-    phone:                 { type: 'phone',  aliases: ['phone', 'mobile', 'contact', 'contactnumber'] },
-    amount:                { type: 'number', aliases: ['amount', 'price', 'totalamount', 'orderamount', 'totalprice', 'sellingprice'] },
-    shopifyCustomerId:     { type: 'string', aliases: ['shopifycustomerid', 'customerid'] },
-    product1:              { type: 'string', aliases: ['product', 'productname', 'product1', 'item', 'itemname'] },
-    address:               { type: 'string', aliases: ['address', 'customeraddress', 'shippingaddress', 'billingaddress', 'location'] },
-    date:                  { type: 'date',   aliases: ['date', 'orderdate', 'dateplaced'] },
-    time:                  { type: 'string', aliases: ['time', 'ordertime'] },
-    orderPlaced:           { type: 'string', aliases: ['orderplaced', 'placed'] },
-    orderId:               { type: 'string', aliases: ['orderid', 'id', 'ordernumber'] },
-    orderName:             { type: 'string', aliases: ['ordername'] },
-    orderCreatedAt:        { type: 'date',   aliases: ['ordercreatedat', 'createdat'] },
-    mobileNumber:          { type: 'string', aliases: ['mobilenumber'] },
-    count:                 { type: 'number', aliases: ['count', 'quantity', 'qty'] },
-    callingDate:           { type: 'date',   aliases: ['callingdate'] },
-    agentName:             { type: 'string', aliases: ['agentname', 'agent'] },
-    finalConnected:        { type: 'string', aliases: ['finalconnected', 'connected'] },
-    finalSellingPrice:     { type: 'number', aliases: ['finalsellingprice'] },
-    finalMOP:              { type: 'number', aliases: ['finalmop', 'mop'] },
-    finalOrderPlaced:      { type: 'string', aliases: ['finalorderplaced'] },
-    callingStatus:         { type: 'string', aliases: ['callingstatus', 'status'] },
-    finalRemark:           { type: 'string', aliases: ['finalremark', 'remark', 'remarks'] },
-    extraRemarks:          { type: 'string', aliases: ['extraremarks', 'notes'] },
-    orderDate:             { type: 'date',   aliases: ['orderdate'] },
-    month:                 { type: 'string', aliases: ['month'] },
-    churnCount:            { type: 'number', aliases: ['churncount', 'churn'] },
-    lastCallDate:          { type: 'date',   aliases: ['lastcalldate'] },
-    countType:             { type: 'string', aliases: ['counttype'] },
-    orderedMonth:          { type: 'string', aliases: ['orderedmonth'] },
-    leadsMonth:            { type: 'string', aliases: ['leadsmonth'] },
-    orderStatus:           { type: 'string', aliases: ['orderstatus'] },
+    name: { type: 'string', aliases: ['name', 'fullname', 'customername', 'clientname'] },
+    phone: { type: 'phone', aliases: ['phone', 'mobile', 'contact', 'contactnumber'] },
+    amount: { type: 'number', aliases: ['amount', 'price', 'totalamount', 'orderamount', 'totalprice', 'sellingprice'] },
+    shopifyCustomerId: { type: 'string', aliases: ['shopifycustomerid', 'customerid'] },
+    product1: { type: 'string', aliases: ['product', 'productname', 'product1', 'item', 'itemname'] },
+    address: { type: 'string', aliases: ['address', 'customeraddress', 'shippingaddress', 'billingaddress', 'location'] },
+    date: { type: 'date', aliases: ['date', 'orderdate', 'dateplaced'] },
+    time: { type: 'string', aliases: ['time', 'ordertime'] },
+    orderPlaced: { type: 'string', aliases: ['orderplaced', 'placed'] },
+    orderId: { type: 'string', aliases: ['orderid', 'id', 'ordernumber'] },
+    orderName: { type: 'string', aliases: ['ordername'] },
+    orderCreatedAt: { type: 'date', aliases: ['ordercreatedat', 'createdat'] },
+    mobileNumber: { type: 'string', aliases: ['mobilenumber'] },
+    count: { type: 'number', aliases: ['count', 'quantity', 'qty'] },
+    callingDate: { type: 'date', aliases: ['callingdate'] },
+    agentName: { type: 'string', aliases: ['agentname', 'agent'] },
+    finalConnected: { type: 'string', aliases: ['finalconnected', 'connected'] },
+    finalSellingPrice: { type: 'number', aliases: ['finalsellingprice'] },
+    finalMOP: { type: 'number', aliases: ['finalmop', 'mop'] },
+    finalOrderPlaced: { type: 'string', aliases: ['finalorderplaced'] },
+    callingStatus: { type: 'string', aliases: ['callingstatus', 'status'] },
+    finalRemark: { type: 'string', aliases: ['finalremark', 'remark', 'remarks'] },
+    extraRemarks: { type: 'string', aliases: ['extraremarks', 'notes'] },
+    orderDate: { type: 'date', aliases: ['orderdate'] },
+    month: { type: 'string', aliases: ['month'] },
+    churnCount: { type: 'number', aliases: ['churncount', 'churn'] },
+    lastCallDate: { type: 'date', aliases: ['lastcalldate'] },
+    countType: { type: 'string', aliases: ['counttype'] },
+    orderedMonth: { type: 'string', aliases: ['orderedmonth'] },
+    leadsMonth: { type: 'string', aliases: ['leadsmonth'] },
+    orderStatus: { type: 'string', aliases: ['orderstatus'] },
 
     // ── CRM-style headers → exact DB field name keys ──────────────────────
     // These keys match MongoDB field names directly, so payload[field] = value
     // writes to the correct field without any extra side-effects.
-    first_name:              { type: 'string', aliases: ['firstname', 'first name', 'first_name'] },
-    last_name:               { type: 'string', aliases: ['lastname', 'last name', 'last_name'] },
-    phone_number:            { type: 'phone',  aliases: ['phonenumber', 'phone number', 'phone_number', 'phoneno', 'phone no'] },
-    alternate_phone_number:  { type: 'phone',  aliases: ['alternatephonenumber', 'alternate phone number', 'alternate_phone_number', 'altphone', 'alternatephone', 'alt phone', 'alt phone number'] },
-    postal_code:             { type: 'string', aliases: ['postalcode', 'postal code', 'postal_code', 'zip', 'zipcode', 'pincode', 'pin code'] },
-    dob:                     { type: 'string', aliases: ['dateofbirth', 'date of birth', 'dob', 'date_of_birth', 'birthdate'] },
-    email:                   { type: 'string', aliases: ['email', 'emailaddress', 'email address', 'email_address'] },
-    city:                    { type: 'string', aliases: ['city'] },
-    state:                   { type: 'string', aliases: ['state'] },
-    province:                { type: 'string', aliases: ['province'] },
-    gender:                  { type: 'string', aliases: ['gender', 'sex'] },
-    description:             { type: 'string', aliases: ['description', 'desc'] },
-    campaign_name:           { type: 'string', aliases: ['campaignname', 'campaign name', 'campaign_name'] },
+    first_name: { type: 'string', aliases: ['firstname', 'first name', 'first_name'] },
+    last_name: { type: 'string', aliases: ['lastname', 'last name', 'last_name'] },
+    phone_number: { type: 'phone', aliases: ['phonenumber', 'phone number', 'phone_number', 'phoneno', 'phone no'] },
+    alternate_phone_number: { type: 'phone', aliases: ['alternatephonenumber', 'alternate phone number', 'alternate_phone_number', 'altphone', 'alternatephone', 'alt phone', 'alt phone number'] },
+    postal_code: { type: 'string', aliases: ['postalcode', 'postal code', 'postal_code', 'zip', 'zipcode', 'pincode', 'pin code'] },
+    dob: { type: 'string', aliases: ['dateofbirth', 'date of birth', 'dob', 'date_of_birth', 'birthdate'] },
+    email: { type: 'string', aliases: ['email', 'emailaddress', 'email address', 'email_address'] },
+    city: { type: 'string', aliases: ['city'] },
+    state: { type: 'string', aliases: ['state'] },
+    province: { type: 'string', aliases: ['province'] },
+    gender: { type: 'string', aliases: ['gender', 'sex'] },
+    description: { type: 'string', aliases: ['description', 'desc'] },
+    campaign_name: { type: 'string', aliases: ['campaignname', 'campaign name', 'campaign_name'] },
 };
 
 export const DEFAULT_FIELD_MAPPINGS: FieldMapping[] = [
@@ -138,6 +139,7 @@ export class SampannGoogleSheetService {
         private readonly commonDbFn: CommonDBFunctions,
         @InjectModel(LeadManagementSchema.name) private readonly lead_management: Model<LeadManagementDocument>,
         private readonly leadManagementService: LeadManagementService,
+        @InjectModel(LeadsInQueueSchema.name) private readonly leads_in_queue: Model<LeadsInQueueDocument>,
         @InjectModel(LeadGroupSchema.name) private readonly lead_group: Model<LeadGroupDocument>,
         @InjectModel(GoogleSheet.name) private readonly googleSheetModel: Model<GoogleSheetDocument>,
         @InjectModel(OutboundCampaignSchema.name) private readonly outbound_campaign: Model<OutboundCampaignDocument>,
@@ -180,17 +182,46 @@ export class SampannGoogleSheetService {
             console.log('[GoogleSheetService] No active sheet configs to process.');
             return this.summary;
         }
-        console.log(`[GoogleSheetService] Total Google Sheets found: ${configs.length}`);
-        this.summary.totalSheets = configs.length;
-        // Process each config in parallel using Promise.allSettled to ensure one config's failure does not stop others
-        const configPromises = configs.map(async (cfg) => {
+
+        console.log(`[GoogleSheetService] Total unexhausted Google Sheets found: ${configs.length}`);
+
+        // Group configs by campaign
+        const configsByCampaign = new Map<string, GoogleSheetConfig[]>();
+        for (const cfg of configs) {
             if (!cfg.isActive) {
                 console.log(`[GoogleSheetService] Skipping inactive config UUID: ${cfg.uuid}`);
-                return; // skip inactive
+                continue;
             }
-            console.log(`[GoogleSheetService] Processing active Google Sheet config UUID: ${cfg.uuid}`);
-            await this.processConfig(cfg);
-        });
+            const key = cfg.campaign_uuid || 'no_campaign';
+            if (!configsByCampaign.has(key)) {
+                configsByCampaign.set(key, []);
+            }
+            configsByCampaign.get(key)!.push(cfg);
+        }
+
+        const configPromises = [];
+        for (const [campaignUuid, campaignConfigs] of configsByCampaign.entries()) {
+            if (campaignUuid === 'no_campaign') {
+                for (const cfg of campaignConfigs) {
+                    configPromises.push(this.processConfig(cfg));
+                }
+            } else {
+                // Sort chronologically by createdAt to preserve the configured sequence
+                campaignConfigs.sort((a, b) => {
+                    const timeA = (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
+                    const timeB = (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
+                    return timeA - timeB;
+                });
+
+                const activeConfig = campaignConfigs[0];
+                if (activeConfig) {
+                    console.log(`[GoogleSheetService] Sequential Sheet Processing: Selected Sheet UUID ${activeConfig.uuid} for campaign ${campaignUuid}. Remaining ${campaignConfigs.length - 1} sheets will pend.`);
+                    configPromises.push(this.processConfig(activeConfig));
+                }
+            }
+        }
+
+        this.summary.totalSheets = configPromises.length;
         await Promise.allSettled(configPromises);
 
         // Log final summary
@@ -468,7 +499,13 @@ export class SampannGoogleSheetService {
             lead_status: cfg.lead_status,
         });
 
-        console.log(`${label} Tab "${tab.tab_name}" remaining callable leads: ${remaining}`);
+        // Also check if any leads from this tab are currently active in the queue
+        const activeInQueue = await this.leads_in_queue.countDocuments({
+            campaign_uuid: cfg.campaign_uuid,
+            lead_group_uuid: tab.lead_group_uuid,
+        });
+
+        console.log(`${label} Tab "${tab.tab_name}" remaining callable leads: ${remaining}, active in queue: ${activeInQueue}`);
 
         // Update snapshot for observability
         await this.googleSheetTabModel.updateOne(
@@ -476,7 +513,7 @@ export class SampannGoogleSheetService {
             { remaining_leads: remaining },
         );
 
-        return remaining === 0;
+        return remaining === 0 && activeInQueue === 0;
     }
 
     /**
@@ -891,6 +928,9 @@ export class SampannGoogleSheetService {
                 campaign_uuid: campaignUuid,
                 lead_status: cfg.lead_status,
                 lead_source: "GoogleSheet",
+                google_sheet_uuid: cfg.uuid,
+                sheet_tab_gid: activeTab.sheet_gid,
+                sheet_tab_name: activeTab.tab_name,
                 postal_code: null,
                 email: null,
                 user_uuid: null,
@@ -1245,17 +1285,54 @@ export class SampannGoogleSheetService {
 
         if (!exhaustedConfigs.length) return;
 
+        // Group exhausted configs by campaign
+        const campaignConfigsMap = new Map<string, GoogleSheetConfig[]>();
         for (const cfg of exhaustedConfigs) {
-            console.log(`[GoogleSheetService] All tabs for config ${cfg.uuid} (Sheet: ${cfg.sheet_id}) are exhausted. Processing notification email.`);
+            const key = cfg.campaign_uuid || 'no_campaign';
+            if (!campaignConfigsMap.has(key)) {
+                campaignConfigsMap.set(key, []);
+            }
+            campaignConfigsMap.get(key)!.push(cfg);
+        }
 
-            const recipients = cfg.notification_recipients ?? [];
-            const success = await this.sendExhaustionEmail(recipients, cfg);
+        for (const [campaignUuid, configs] of campaignConfigsMap.entries()) {
+            if (campaignUuid !== 'no_campaign') {
+                // Check if this campaign has any active unexhausted configs
+                const unexhaustedCount = await this.googleConfigModel.countDocuments({
+                    campaign_uuid: campaignUuid,
+                    all_tabs_exhausted: false,
+                    isActive: true
+                });
+
+                if (unexhaustedCount > 0) {
+                    console.log(`[GoogleSheetService] Campaign ${campaignUuid} still has ${unexhaustedCount} unexhausted sheets. Delaying campaign exhaustion email.`);
+                    continue; // Skip sending email until ALL sheets are exhausted
+                }
+            }
+
+            console.log(`[GoogleSheetService] All sheets for campaign ${campaignUuid} are exhausted. Processing notification email.`);
+
+            // Collect all unique recipients for the campaign
+            const allRecipientsMap = new Map<string, NotificationRecipient>();
+            for (const cfg of configs) {
+                if (cfg.notification_recipients) {
+                    for (const r of cfg.notification_recipients) {
+                        allRecipientsMap.set(r.email, r);
+                    }
+                }
+            }
+            const recipients = Array.from(allRecipientsMap.values());
+
+            // Use the first config for email context (campaign, tenant) but pass all configs for the summary
+            const baseCfg = configs[0];
+            const success = await this.sendExhaustionEmail(recipients, baseCfg, configs);
 
             if (success) {
-                // Mark this config as email-sent
-                await this.googleConfigModel.updateOne(
-                    { uuid: cfg.uuid },
-                    { exhaustion_email_sent_at: new Date().toISOString() }
+                // Mark all these configs as email-sent
+                const configUuids = configs.map(c => c.uuid);
+                await this.googleConfigModel.updateMany(
+                    { uuid: { $in: configUuids } },
+                    { $set: { exhaustion_email_sent_at: new Date().toISOString() } }
                 );
             }
         }
@@ -1477,7 +1554,7 @@ export class SampannGoogleSheetService {
      * Required env vars:
      *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
      */
-    private async sendExhaustionEmail(recipients: NotificationRecipient[], cfg: GoogleSheetConfig): Promise<boolean> {
+    private async sendExhaustionEmail(recipients: NotificationRecipient[], cfg: GoogleSheetConfig, campaignConfigs: GoogleSheetConfig[]): Promise<boolean> {
         try {
             console.log(cfg, "challallaa", cfg.uuid, cfg.campaign_uuid, cfg.campaign_flag);
 
@@ -1563,8 +1640,8 @@ export class SampannGoogleSheetService {
                 }
             }
 
-            // Build a per-config summary table
-            const tabSummaryRows = await this.buildExhaustionSummary([cfg]);
+            // Build a per-config summary table using all campaign configs
+            const tabSummaryRows = await this.buildExhaustionSummary(campaignConfigs);
 
             const tableHtml = `
             <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
