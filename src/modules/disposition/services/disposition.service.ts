@@ -613,7 +613,7 @@ export class DispositionService {
             }
         };
 
-        if (inheritedCampaignUUIDs.length && createDispositionDto.level !== 0) {
+        if (createDispositionDto.campaign_uuid !== undefined) {
             await updateChildCampaignUUIDs(disposition_uuid);
         }
 
