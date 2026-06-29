@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Req, Param, Delete, Headers, Query, Res } from '@nestjs/common';
 import { Public } from 'src/global_constant';
 import { GoogleSheetService } from '../services/google-sheet.service';
-import { SampannGoogleSheetService } from '../services/google-sheet-sampan_new.service';
+import { SampannGoogleSheetService } from '../services/google-sheet-sampan.service';
 import { CreateGoogleCredentialDto } from '../dto/google-credential.dto';
 // import { GoogleSheetProducer } from '../services/google-sheet.producer';
 // import { GoogleSheetHealthService } from '../services/google-sheet.health';

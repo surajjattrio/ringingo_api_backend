@@ -3,7 +3,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GoogleSheetController } from './controllers/google-sheet.controller';
 import { GoogleSheetService } from './services/google-sheet.service';
-import { SampannGoogleSheetService } from './services/google-sheet-sampan_new.service';
+import { SampannGoogleSheetService } from './services/google-sheet-sampan.service';
 // import { GoogleSheetProducer } from './services/google-sheet.producer';
 // import { GoogleSheetConsumer } from './services/google-sheet.consumer';
 // import { GoogleSheetHealthService } from './services/google-sheet.health';

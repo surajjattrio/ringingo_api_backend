@@ -175,59 +175,240 @@ export class SampannGoogleSheetService {
         // Check for un-notified exhausted tabs
         await this.checkTabExhaustion();
 
-        const configs = await this.googleConfigModel
-            .find({ all_tabs_exhausted: false })
+        const allActiveConfigs = await this.googleConfigModel
+            .find({ all_tabs_exhausted: false, isActive: true })
             .lean<GoogleSheetConfig[]>();
-        if (!configs.length) {
+        if (!allActiveConfigs.length) {
             console.log('[GoogleSheetService] No active sheet configs to process.');
             return this.summary;
         }
 
-        console.log(`[GoogleSheetService] Total unexhausted Google Sheets found: ${configs.length}`);
+        console.log(
+            `[GoogleSheetService] Active configs to process: ${allActiveConfigs.length}. ` +
+            `Sheet IDs: [${allActiveConfigs.map(c => c.sheet_id).join(', ')}]`,
+        );
 
+        // ── Phase 1: Tab Discovery ────────────────────────────────────────────
+        // Runs for EVERY active config simultaneously, regardless of campaign
+        // grouping.  This is the ONLY place tabs are discovered and Lead Groups
+        // are pre-created.  It is decoupled from the lead-import phase so that
+        // sheets skipped by the sequential-per-campaign logic still get all
+        // their tabs discovered and Lead Groups created upfront.
+        console.log(`[GoogleSheetService] ========== PHASE 1: TAB DISCOVERY (${allActiveConfigs.length} sheets) ==========`);
+        const discoveryResults = await Promise.allSettled(
+            allActiveConfigs.map(cfg => this.discoverTabsForConfig(cfg)),
+        );
+        const discoverySucceeded = discoveryResults.filter(r => r.status === 'fulfilled').length;
+        const discoveryFailed = discoveryResults.filter(r => r.status === 'rejected').length;
+        const totalTabsInDb = await this.googleSheetTabModel.countDocuments({});
+        console.log(
+            `[GoogleSheetService] Phase 1 Complete. ` +
+            `Sheets succeeded: ${discoverySucceeded}, failed: ${discoveryFailed}. ` +
+            `Total tab records in DB: ${totalTabsInDb}.`,
+        );
+
+        // ── Phase 2: Lead Import ──────────────────────────────────────────────
+        // Sequential per campaign: only the first (oldest) config per campaign
+        // imports leads; the rest wait until it is exhausted.
+        console.log(`[GoogleSheetService] ========== PHASE 2: LEAD IMPORT (sequential per campaign) ==========`);
         // Group configs by campaign
-        const configsByCampaign = new Map<string, GoogleSheetConfig[]>();
-        for (const cfg of configs) {
-            if (!cfg.isActive) {
-                console.log(`[GoogleSheetService] Skipping inactive config UUID: ${cfg.uuid}`);
-                continue;
-            }
-            const key = cfg.campaign_uuid || 'no_campaign';
-            if (!configsByCampaign.has(key)) {
-                configsByCampaign.set(key, []);
-            }
-            configsByCampaign.get(key)!.push(cfg);
-        }
+        // ── Phase 2: Lead Import (all sheets in parallel, tabs sequential per sheet) ──
+        //
+        // Every active Google Sheet is processed independently and simultaneously.
+        // Within each sheet, the tab state machine is:
+        //   Tab 1 → active (leads imported) → exhausted → Tab 2 activated → ...
+        // No sheet waits for another sheet to finish.
+        console.log(`[GoogleSheetService] ========== PHASE 2: LEAD IMPORT (${allActiveConfigs.length} sheets, parallel — independent per sheet) ==========`);
+        allActiveConfigs.forEach((cfg, idx) => {
+            console.log(
+                `[GoogleSheetService] Phase 2 Queue [${idx + 1}/${allActiveConfigs.length}]: ` +
+                `sheet_id=${cfg.sheet_id} | config_uuid=${cfg.uuid} | campaign_uuid=${cfg.campaign_uuid ?? 'none'}`,
+            );
+        });
 
-        const configPromises = [];
-        for (const [campaignUuid, campaignConfigs] of configsByCampaign.entries()) {
-            if (campaignUuid === 'no_campaign') {
-                for (const cfg of campaignConfigs) {
-                    configPromises.push(this.processConfig(cfg));
-                }
-            } else {
-                // Sort chronologically by createdAt to preserve the configured sequence
-                campaignConfigs.sort((a, b) => {
-                    const timeA = (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
-                    const timeB = (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
-                    return timeA - timeB;
-                });
+        this.summary.totalSheets = allActiveConfigs.length;
+        await Promise.allSettled(allActiveConfigs.map(cfg => this.processConfig(cfg)));
 
-                const activeConfig = campaignConfigs[0];
-                if (activeConfig) {
-                    console.log(`[GoogleSheetService] Sequential Sheet Processing: Selected Sheet UUID ${activeConfig.uuid} for campaign ${campaignUuid}. Remaining ${campaignConfigs.length - 1} sheets will pend.`);
-                    configPromises.push(this.processConfig(activeConfig));
-                }
-            }
-        }
-
-        this.summary.totalSheets = configPromises.length;
-        await Promise.allSettled(configPromises);
-
-        // Log final summary
-        // Recompute total tabs from DB to ensure accurate count
+        // Final summary
         this.summary.totalTabs = await this.googleSheetTabModel.countDocuments({});
-        console.log('[GoogleSheetService] Processing complete. Summary:', this.summary);
+        const totalLeadGroups = await this.lead_group.countDocuments({});
+        console.log(
+            `[GoogleSheetService] ========== PROCESSING COMPLETE ==========\n` +
+            `  Total Active Sheets : ${allActiveConfigs.length}\n` +
+            `  Total Tab Records   : ${this.summary.totalTabs}\n` +
+            `  Total Lead Groups   : ${totalLeadGroups}\n` +
+            `  Rows Fetched        : ${this.summary.totalRowsFetched}\n` +
+            `  Leads Imported      : ${this.summary.totalInsertedInLeadManagement}\n` +
+            `  Duplicates Skipped  : ${this.summary.totalDuplicates}\n` +
+            `  Failed Rows         : ${this.summary.totalFailed}`,
+        );
+        console.log('[GoogleSheetService] Full summary object:', this.summary);
+    }
+
+    // =========================================================================
+    // PUBLIC — parallel tab & lead-group sync across ALL active sheets
+    // =========================================================================
+
+    /**
+     * Fetches all tabs from every active Google Sheet configuration simultaneously.
+     * For each tab it:
+     *   1. Upserts a GoogleSheetTab document (idempotent — no duplicates).
+     *   2. Ensures a LeadGroup exists for the tab and stores lead_group_uuid.
+     *
+     * Safe to run multiple times — repeated executions produce the same state.
+     */
+    async syncAllTabsFromAllActiveSheets(): Promise<{
+        processedSheets: number;
+        processedTabs: number;
+        createdLeadGroups: number;
+        errors: string[];
+    }> {
+        const label = '[SyncAllTabs]';
+        console.log(`${label} Starting parallel tab sync for all active Google Sheet configs.`);
+
+        const activeConfigs = await this.googleConfigModel
+            .find({ isActive: true })
+            .lean<GoogleSheetConfig[]>();
+
+        if (!activeConfigs.length) {
+            console.log(`${label} No active sheet configs found.`);
+            return { processedSheets: 0, processedTabs: 0, createdLeadGroups: 0, errors: [] };
+        }
+
+        console.log(`${label} Found ${activeConfigs.length} active config(s). Processing in parallel...`);
+
+        const results = await Promise.all(
+            activeConfigs.map(cfg => this.syncTabsForConfig(cfg, label)),
+        );
+
+        // Aggregate results
+        const summary = results.reduce(
+            (acc, r) => ({
+                processedSheets: acc.processedSheets + 1,
+                processedTabs: acc.processedTabs + r.tabsProcessed,
+                createdLeadGroups: acc.createdLeadGroups + r.leadGroupsCreated,
+                errors: [...acc.errors, ...r.errors],
+            }),
+            { processedSheets: 0, processedTabs: 0, createdLeadGroups: 0, errors: [] as string[] },
+        );
+
+        console.log(`${label} Completed. Summary:`, summary);
+        return summary;
+    }
+
+    /**
+     * Processes a single config: fetches live tabs, upserts metadata,
+     * and ensures a LeadGroup for every tab.
+     */
+    private async syncTabsForConfig(
+        cfg: GoogleSheetConfig,
+        parentLabel: string,
+    ): Promise<{ tabsProcessed: number; leadGroupsCreated: number; errors: string[] }> {
+        const label = `${parentLabel}[${cfg.tenant_uuid}][${cfg.sheet_id}]`;
+        const result = { tabsProcessed: 0, leadGroupsCreated: 0, errors: [] as string[] };
+
+        try {
+            const credential = await this.googleCredentialModel
+                .findOne({ uuid: cfg.credential_uuid })
+                .lean<GoogleCredential>();
+
+            if (!credential) {
+                const msg = `Credential not found for config ${cfg.uuid} (credential_uuid: ${cfg.credential_uuid})`;
+                console.error(`${label} ${msg}`);
+                result.errors.push(msg);
+                return result;
+            }
+
+            const liveTabs = await this.fetchTabList(cfg, credential, label);
+            if (!liveTabs || liveTabs.length === 0) {
+                const msg = `No tabs found (or API error) for sheet ${cfg.sheet_id}`;
+                console.warn(`${label} ${msg}`);
+                result.errors.push(msg);
+                return result;
+            }
+
+            console.log(`${label} ${liveTabs.length} tab(s) found. Syncing metadata + lead groups in parallel...`);
+
+            // Process every tab for this config in parallel
+            const tabResults = await Promise.all(
+                liveTabs.map(tab => this.syncSingleTab(cfg, tab, credential, label)),
+            );
+
+            for (const tr of tabResults) {
+                result.tabsProcessed++;
+                if (tr.leadGroupCreated) result.leadGroupsCreated++;
+                if (tr.error) result.errors.push(tr.error);
+            }
+
+        } catch (err: any) {
+            const msg = `Unhandled error for config ${cfg.uuid}: ${err?.message ?? err}`;
+            console.error(`${label} ${msg}`);
+            result.errors.push(msg);
+        }
+
+        return result;
+    }
+
+    /**
+     * Upserts a single tab document into google_sheet_tabs and ensures a
+     * LeadGroup exists, writing lead_group_uuid back to the tab document.
+     */
+    private async syncSingleTab(
+        cfg: GoogleSheetConfig,
+        tab: SheetTabInfo,
+        credential: GoogleCredential,
+        label: string,
+    ): Promise<{ leadGroupCreated: boolean; error?: string }> {
+        try {
+            // 1. Upsert tab metadata — idempotent
+            const tabDoc = await this.googleSheetTabModel.findOneAndUpdate(
+                { config_uuid: cfg.uuid, sheet_gid: tab.sheetId },
+                {
+                    $setOnInsert: {
+                        config_uuid: cfg.uuid,
+                        tenant_uuid: cfg.tenant_uuid,
+                        sheet_gid: tab.sheetId,
+                        status: 'pending',
+                        total_leads: 0,
+                        remaining_leads: 0,
+                        activated_at: null,
+                        exhausted_at: null,
+                    },
+                    $set: {
+                        tab_name: tab.title,
+                        position: tab.position,
+                        campaign_uuid: cfg.campaign_uuid ?? null,
+                        google_sheet_uuid: cfg.uuid,
+                    },
+                },
+                { upsert: true, new: true },
+            ).lean<GoogleSheetTab>();
+
+            // 2. Ensure lead group and persist uuid back to the tab doc
+            let leadGroupCreated = false;
+            const existingUuid = tabDoc?.lead_group_uuid;
+
+            const leadGroup = await this.ensureLeadGroup(cfg, tab.title);
+
+            if (!existingUuid || existingUuid !== leadGroup.uuid?.toString()) {
+                await this.googleSheetTabModel.updateOne(
+                    { config_uuid: cfg.uuid, sheet_gid: tab.sheetId },
+                    { $set: { lead_group_uuid: leadGroup.uuid?.toString() } },
+                );
+                leadGroupCreated = !existingUuid; // truly new only if there was no uuid before
+                console.log(
+                    `${label} Tab "${tab.title}" → lead_group_uuid=${leadGroup.uuid} ${leadGroupCreated ? '(newly created)' : '(reused)'}`,
+                );
+            } else {
+                console.log(`${label} Tab "${tab.title}" already has lead_group_uuid=${existingUuid} — skipping update.`);
+            }
+
+            return { leadGroupCreated };
+        } catch (err: any) {
+            const msg = `Error syncing tab "${tab.title}" (gid ${tab.sheetId}): ${err?.message ?? err}`;
+            console.error(`${label} ${msg}`);
+            return { leadGroupCreated: false, error: msg };
+        }
     }
 
     // =========================================================================
@@ -295,10 +476,16 @@ export class SampannGoogleSheetService {
                 console.error(`${label} Could not fetch tab list.`);
                 return;
             }
-            console.log(`${label} Total tabs found: ${liveTabs.length}`);
+            console.log(`${label} Total tabs found: ${liveTabs.length}. Tabs: [${liveTabs.map(t => `"${t.title}" (gid=${t.sheetId}, pos=${t.position})`).join(', ')}]`);
             // Update summary
             this.summary.totalTabs += liveTabs.length;
             await this.syncTabMetadata(cfg, liveTabs, label);
+
+            // ── Step 1.5: Pre-create Lead Groups for ALL tabs in parallel ──
+            // Ensures every tab has a Lead Group ready before it becomes active.
+            // Only the FIRST (leftmost) tab will be activated for lead import;
+            // remaining tabs stay 'pending' until their predecessor is exhausted.
+            await this.ensureLeadGroupsForAllTabs(cfg, liveTabs, label);
 
             // ── Step 2: Check if active tab is exhausted → promote ────────
             await this.advanceActiveTabIfExhausted(cfg, label);
@@ -310,30 +497,40 @@ export class SampannGoogleSheetService {
                 return;
             }
 
-            if (freshCfg.active_tab_gid == null) {
-                console.log(`${label} No active tab yet — nothing to import.`);
+            // ── Step 4: Import leads for ALL tabs (parallel, each tab isolated) ───
+            const allTabs = await this.googleSheetTabModel
+                .find({ config_uuid: cfg.uuid })
+                .lean<GoogleSheetTab[]>();
+
+            if (!allTabs.length) {
+                console.log(`${label} No tab docs found for this config — nothing to import.`);
                 return;
             }
 
-            // ── Step 4: Import leads for the active tab ───────────────────
-            const activeTab = await this.googleSheetTabModel
-                .findOne({ config_uuid: cfg.uuid, sheet_gid: freshCfg.active_tab_gid })
-                .lean<GoogleSheetTab>();
+            console.log(
+                `${label} ═══ PROCESSING ALL ${allTabs.length} TAB(S) ═══ ` +
+                `[${allTabs.map(t => `"${t.tab_name}" (gid=${t.sheet_gid}, status=${t.status})`).join(', ')}]`,
+            );
 
-            if (!activeTab) {
-                console.error(`${label} Active tab doc not found for gid ${freshCfg.active_tab_gid}`);
-                return;
-            }
+            await Promise.allSettled(
+                allTabs.map(async (tab) => {
+                    try {
+                        console.log(
+                            `${label} ─── TAB: "${tab.tab_name}" ` +
+                            `(gid=${tab.sheet_gid}, lead_group_uuid=${tab.lead_group_uuid ?? 'not set'}) ───`,
+                        );
+                        await this.importTabLeads(freshCfg, tab, credential, label);
+                        await this.syncLeadStatusToSheet(freshCfg, tab, credential, label);
+                    } catch (tabErr: any) {
+                        console.error(
+                            `${label} Tab "${tab.tab_name}" (gid=${tab.sheet_gid}) failed:`,
+                            tabErr?.message ?? tabErr,
+                        );
+                    }
+                }),
+            );
 
-            // Only import if tab has not been imported yet (total_leads = 0 means first time)
-            if (!activeTab.total_leads || activeTab.total_leads === 0) {
-                await this.importTabLeads(freshCfg, activeTab, credential, label);
-            } else {
-                console.log(`${label} Tab "${activeTab.tab_name}" already imported (${activeTab.total_leads} leads) — skipping re-import.`);
-            }
-            // Sync dispositioned leads back to Google Sheet (writes "Done" to Status column)
-            await this.syncLeadStatusToSheet(freshCfg, activeTab, credential, label);
-            // Re‑evaluate tab exhaustion so we can move to the next tab when all leads are called
+            // Re‑evaluate tab exhaustion so the state-machine can advance when needed
             await this.advanceActiveTabIfExhausted(freshCfg, label);
 
         } catch (err: any) {
@@ -344,6 +541,123 @@ export class SampannGoogleSheetService {
     // =========================================================================
     // PRIVATE — tab discovery & sync
     // =========================================================================
+
+    /**
+     * Discovers all tabs for a single config, syncs metadata, and pre-creates
+     * Lead Groups for every tab.  Called by Phase 1 of callGoogleSheetCron
+     * for ALL active configs — independent of the per-campaign sequential logic.
+     */
+    private async discoverTabsForConfig(cfg: GoogleSheetConfig): Promise<void> {
+        const label = `[TabDiscovery][${cfg.tenant_uuid}][${cfg.sheet_id}]`;
+        try {
+            console.log(`${label} ── Discovering tabs for sheet_id=${cfg.sheet_id} (config_uuid=${cfg.uuid}) ──`);
+
+            const credential = await this.googleCredentialModel
+                .findOne({ uuid: cfg.credential_uuid })
+                .lean<GoogleCredential>();
+
+            if (!credential) {
+                console.error(`${label} Credential not found (credential_uuid=${cfg.credential_uuid}). Skipping this sheet.`);
+                return;
+            }
+
+            const liveTabs = await this.fetchTabList(cfg, credential, label);
+            if (!liveTabs || liveTabs.length === 0) {
+                console.error(`${label} No tabs returned for sheet_id=${cfg.sheet_id}. Check credentials and sheet permissions.`);
+                return;
+            }
+
+            console.log(
+                `${label} Fetched ${liveTabs.length} tab(s): ` +
+                `[${liveTabs.map(t => `"${t.title}" (gid=${t.sheetId}, pos=${t.position})`).join(', ')}]`,
+            );
+
+            await this.syncTabMetadata(cfg, liveTabs, label);
+            console.log(`${label} Tab metadata saved: ${liveTabs.length} tab record(s) upserted into google_sheet_tabs.`);
+
+            await this.ensureLeadGroupsForAllTabs(cfg, liveTabs, label);
+            console.log(`${label} Lead Groups ensured for all ${liveTabs.length} tab(s) of sheet_id=${cfg.sheet_id}.`);
+
+            // Ensure the first tab is marked ACTIVE before processing begins.
+            // This runs BEFORE the lead-import phase so every sheet has an
+            // active tab ready when processConfig() executes.
+            await this.activateFirstTabIfNoneActive(cfg, label);
+
+        } catch (err: any) {
+            console.error(`${label} discoverTabsForConfig error for sheet_id=${cfg.sheet_id}:`, err?.message ?? err);
+        }
+    }
+
+    /**
+     * Sets the first (leftmost by position) pending tab as active for the given
+     * config, but ONLY if no active tab is currently set AND verified in the DB.
+     *
+     * Idempotent — skips if a tab with status='active' already exists for this config.
+     */
+    private async activateFirstTabIfNoneActive(
+        cfg: GoogleSheetConfig,
+        label: string,
+    ): Promise<void> {
+        // Re-fetch to get the freshest active_tab_gid
+        const freshCfg = await this.googleConfigModel
+            .findOne({ uuid: cfg.uuid })
+            .lean<GoogleSheetConfig>();
+
+        if (!freshCfg) return;
+
+        if (freshCfg.active_tab_gid != null) {
+            // Verify the tab the config points to actually has status='active'
+            // (it may have been re-created as 'pending' after a collection reset)
+            const verifiedActive = await this.googleSheetTabModel
+                .findOne({ config_uuid: cfg.uuid, sheet_gid: freshCfg.active_tab_gid, status: 'active' })
+                .lean<GoogleSheetTab>();
+
+            if (verifiedActive) {
+                console.log(
+                    `${label} [FirstTabActivation] Tab "${verifiedActive.tab_name}" ` +
+                    `(gid=${freshCfg.active_tab_gid}) is already ACTIVE — no change needed.`,
+                );
+                return;
+            }
+
+            // active_tab_gid is set but the tab is NOT active (pending/exhausted/missing)
+            // advanceActiveTabIfExhausted will handle the correct state transition.
+            console.log(
+                `${label} [FirstTabActivation] active_tab_gid=${freshCfg.active_tab_gid} set ` +
+                `but tab is not active — state will be corrected by advanceActiveTabIfExhausted.`,
+            );
+            return;
+        }
+
+        // active_tab_gid is null — find and activate the first pending tab
+        const firstPendingTab = await this.googleSheetTabModel
+            .findOne({ config_uuid: cfg.uuid, status: 'pending' })
+            .sort({ position: 1 })
+            .lean<GoogleSheetTab>();
+
+        if (!firstPendingTab) {
+            console.log(`${label} [FirstTabActivation] No pending tabs found — nothing to activate.`);
+            return;
+        }
+
+        await this.googleSheetTabModel.updateOne(
+            { _id: (firstPendingTab as any)._id },
+            { $set: { status: 'active', activated_at: new Date() } },
+        );
+        await this.googleConfigModel.updateOne(
+            { uuid: cfg.uuid },
+            { $set: { active_tab_gid: firstPendingTab.sheet_gid } },
+        );
+
+        console.log(
+            `${label} [FirstTabActivation] First tab activated before processing:\n` +
+            `  Sheet ID       : ${cfg.sheet_id}\n` +
+            `  Tab Name       : ${firstPendingTab.tab_name}\n` +
+            `  Tab GID        : ${firstPendingTab.sheet_gid}\n` +
+            `  Position       : ${firstPendingTab.position}\n` +
+            `  Lead Group UUID: ${firstPendingTab.lead_group_uuid ?? 'not yet set'}`,
+        );
+    }
 
     /**
      * Fetches the live list of tabs (worksheets) from the Google Sheets API.
@@ -377,7 +691,9 @@ export class SampannGoogleSheetService {
             return tabs;
 
         } catch (err: any) {
-            console.error(`${label} Failed to fetch tab list:`, err?.message ?? err);
+            console.error(`${label} Failed to fetch tab list for sheet_id=${cfg.sheet_id} (credential_uuid=${cfg.credential_uuid}):`, err?.message ?? err);
+            console.error(`${label} Hint: If error is "scopes.split is not a function", the credential's scopes field is an array — this is now handled automatically.`);
+            console.error(`${label} Hint: If error is 403, the service account email (${label}) does not have access to the spreadsheet.`);
             return null;
         }
     }
@@ -422,8 +738,78 @@ export class SampannGoogleSheetService {
             );
         }
 
-        console.log(`${label} Tab metadata synced.`);
+        console.log(`${label} Tab metadata synced for ${liveTabs.length} tab(s).`);
     }
+
+    /**
+     * Pre-creates a LeadGroup for EVERY discovered tab in parallel.
+     *
+     * This guarantees that all Lead Groups are ready in the database before any
+     * tab is activated, so activateNextPendingTab can rely on the uuid already
+     * being set.  The method is idempotent — tabs that already have a
+     * lead_group_uuid are silently skipped.
+     *
+     * Tab activation order is NOT changed here: only the first pending tab (by
+     * position) will be marked active by advanceActiveTabIfExhausted; the rest
+     * remain 'pending'.
+     */
+    private async ensureLeadGroupsForAllTabs(
+        cfg: GoogleSheetConfig,
+        liveTabs: SheetTabInfo[],
+        label: string,
+    ): Promise<void> {
+        const sortedTabs = [...liveTabs].sort((a, b) => a.position - b.position);
+        const firstTab = sortedTabs[0];
+
+        console.log(
+            `${label} [LeadGroupSync] Pre-creating Lead Groups for ${sortedTabs.length} tab(s). ` +
+            `First tab (will be activated): "${firstTab?.title}". ` +
+            `Remaining tabs (will stay pending): [${sortedTabs.slice(1).map(t => `"${t.title}"`).join(', ')}].`,
+        );
+
+        await Promise.all(
+            sortedTabs.map(async (tab, idx) => {
+                try {
+                    // Check if the tab doc already has a lead_group_uuid
+                    const tabDoc = await this.googleSheetTabModel
+                        .findOne({ config_uuid: cfg.uuid, sheet_gid: tab.sheetId })
+                        .lean<GoogleSheetTab>();
+
+                    if (tabDoc?.lead_group_uuid) {
+                        console.log(
+                            `${label} [LeadGroupSync] Tab "${tab.title}" (pos=${tab.position}) ` +
+                            `already has lead_group_uuid=${tabDoc.lead_group_uuid} — skipping creation.`,
+                        );
+                        return;
+                    }
+
+                    // Create or reuse the LeadGroup
+                    const leadGroup = await this.ensureLeadGroup(cfg, tab.title);
+                    const leadGroupUuid = leadGroup.uuid?.toString();
+
+                    // Persist uuid back to the tab document
+                    await this.googleSheetTabModel.updateOne(
+                        { config_uuid: cfg.uuid, sheet_gid: tab.sheetId },
+                        { $set: { lead_group_uuid: leadGroupUuid } },
+                    );
+
+                    const role = idx === 0 ? 'ACTIVE (first tab — leads will import)' : 'PENDING (awaiting predecessor)';
+                    console.log(
+                        `${label} [LeadGroupSync] Tab "${tab.title}" (pos=${tab.position}, ${role}) ` +
+                        `→ lead_group_uuid=${leadGroupUuid} stored.`,
+                    );
+                } catch (err: any) {
+                    console.error(
+                        `${label} [LeadGroupSync] Failed for tab "${tab.title}" (gid=${tab.sheetId}):`,
+                        err?.message ?? err,
+                    );
+                }
+            }),
+        );
+
+        console.log(`${label} [LeadGroupSync] Lead Group pre-creation complete for all ${sortedTabs.length} tab(s).`);
+    }
+
     // =========================================================================
     // PRIVATE — tab advancement logic
     // =========================================================================
@@ -431,38 +817,72 @@ export class SampannGoogleSheetService {
     /**
      * Core state-machine:
      *
-     *  1. If no active tab → activate the first pending tab (leftmost).
-     *  2. If active tab exists → check if it's exhausted.
-     *     - Exhausted → mark it, find the next pending tab, activate it.
-     *     - Next pending tab not found → mark config as all_tabs_exhausted.
+     *  1. No active tab (active_tab_gid == null) → activate leftmost pending tab.
+     *  2. Active tab GID set but tab doc missing  → reset + activate leftmost pending.
+     *  3. Tab doc found, status == 'pending'       → the tab was freshly re-created
+     *                                                after a reset; activate it now.
+     *  4. Tab doc found, status == 'exhausted'     → already exhausted; find next.
+     *  5. Tab doc found, status == 'active'        → check if leads are consumed;
+     *                                                if yes: exhaust + advance.
      */
     private async advanceActiveTabIfExhausted(cfg: GoogleSheetConfig, label: string): Promise<void> {
 
-        // ── Case A: No active tab yet → activate leftmost pending ─────────
+        // ── Case A: No active tab yet ──────────────────────────────────────
         if (cfg.active_tab_gid == null) {
+            console.log(`${label} [TabState] No active tab set — activating first pending tab.`);
             await this.activateNextPendingTab(cfg, null, label);
             return;
         }
 
-        // ── Case B: Active tab exists → check exhaustion ──────────────────
+        // ── Find the tab doc the config is pointing to ──────────────────
         const activeTab = await this.googleSheetTabModel
             .findOne({ config_uuid: cfg.uuid, sheet_gid: cfg.active_tab_gid })
             .lean<GoogleSheetTab>();
 
+        // ── Case B: Tab doc missing (collection reset or deleted) ────────
         if (!activeTab) {
-            console.warn(`${label} Active tab gid ${cfg.active_tab_gid} not found in DB — resetting.`);
-            await this.googleConfigModel.updateOne({ uuid: cfg.uuid }, { active_tab_gid: null });
+            console.warn(
+                `${label} [TabState] active_tab_gid=${cfg.active_tab_gid} points to a tab that ` +
+                `no longer exists in google_sheet_tabs. Resetting and activating first pending tab.`,
+            );
+            await this.googleConfigModel.updateOne(
+                { uuid: cfg.uuid },
+                { $set: { active_tab_gid: null } },
+            );
+            await this.activateNextPendingTab(cfg, null, label);
             return;
         }
 
+        // ── Case C: Tab is 'pending' (freshly re-created after a reset) ───
+        // The config still remembers the old active GID, but the tab doc was
+        // re-inserted as 'pending'. Activate it without exhaustion check.
+        if (activeTab.status === 'pending') {
+            console.log(
+                `${label} [TabState] Tab "${activeTab.tab_name}" is 'pending' ` +
+                `(re-created after collection reset) — activating it now.`,
+            );
+            await this.googleSheetTabModel.updateOne(
+                { _id: (activeTab as any)._id },
+                { $set: { status: 'active', activated_at: new Date() } },
+            );
+            return;
+        }
+
+        // ── Case D: Tab already exhausted ─────────────────────────────
+        if (activeTab.status === 'exhausted') {
+            console.log(`${label} [TabState] Tab "${activeTab.tab_name}" already exhausted — advancing.`);
+            await this.activateNextPendingTab(cfg, null, label);
+            return;
+        }
+
+        // ── Case E: Tab is 'active' — check if leads are consumed ───────
         const isExhausted = await this.isTabExhausted(activeTab, cfg, label);
-
         if (!isExhausted) {
-            console.log(`${label} Tab "${activeTab.tab_name}" still has callable leads — continuing.`);
+            console.log(`${label} [TabState] Tab "${activeTab.tab_name}" still has callable leads — continuing.`);
             return;
         }
 
-        // Mark current tab exhausted
+        // Mark current tab exhausted then advance
         await this.googleSheetTabModel.updateOne(
             { _id: (activeTab as any)._id },
             { $set: { status: 'exhausted', exhausted_at: new Date(), remaining_leads: 0 } },
@@ -476,41 +896,48 @@ export class SampannGoogleSheetService {
 
     /**
      * Checks whether the active tab has zero callable leads remaining.
-     * A lead is "callable" if its lead_status equals the config's lead_status value
-     * AND it belongs to the tab's lead group.
      *
-     * Adjust the query to match your exact "new / callable" lead definition.
+     * IMPORTANT: A tab with total_leads = 0 has never been imported.
+     * It is NOT exhausted — it simply hasn’t had its leads fetched yet.
+     * Only tabs that were imported (total_leads > 0) and then fully consumed
+     * should be considered exhausted.
      */
     private async isTabExhausted(tab: GoogleSheetTab, cfg: GoogleSheetConfig, label: string): Promise<boolean> {
         if (!tab.lead_group_uuid) {
-            // Tab was never imported — not exhausted, just empty
+            // Tab has no lead group yet — never imported, not exhausted
+            console.log(`${label} [Exhaustion] Tab "${tab.tab_name}" has no lead_group_uuid — not imported yet, NOT exhausted.`);
             return false;
         }
 
-        if (tab.remaining_leads === 0) {
-            console.log(`${label} Tab "${tab.tab_name}" has 0 remaining leads based on DB counter.`);
-            return true;
+        // ── KEY GUARD: if leads have NEVER been imported, the tab is not exhausted ──
+        // total_leads is set to dataRows.length inside importTabLeads().
+        // A value of 0 means the import has not run yet.
+        if (!tab.total_leads || tab.total_leads === 0) {
+            console.log(`${label} [Exhaustion] Tab "${tab.tab_name}" has total_leads=0 (never imported) — NOT exhausted.`);
+            return false;
         }
 
-        // Always count actual callable leads — never rely on remaining_leads counter
-        // (remaining_leads can be 0 right after import before any lead is called)
+        // Count actual callable leads in lead_management
         const remaining = await this.lead_management.countDocuments({
             lead_group_uuid: tab.lead_group_uuid,
             lead_status: cfg.lead_status,
         });
 
-        // Also check if any leads from this tab are currently active in the queue
+        // Count leads actively in the dialler queue for this tab
         const activeInQueue = await this.leads_in_queue.countDocuments({
             campaign_uuid: cfg.campaign_uuid,
             lead_group_uuid: tab.lead_group_uuid,
         });
 
-        console.log(`${label} Tab "${tab.tab_name}" remaining callable leads: ${remaining}, active in queue: ${activeInQueue}`);
+        console.log(
+            `${label} [Exhaustion] Tab "${tab.tab_name}" — ` +
+            `total_leads=${tab.total_leads}, remaining callable=${remaining}, in queue=${activeInQueue}`,
+        );
 
-        // Update snapshot for observability
+        // Update snapshot counter for observability
         await this.googleSheetTabModel.updateOne(
             { _id: (tab as any)._id },
-            { remaining_leads: remaining },
+            { $set: { remaining_leads: remaining } },
         );
 
         return remaining === 0 && activeInQueue === 0;
@@ -893,18 +1320,6 @@ export class SampannGoogleSheetService {
                 return 'failed';
             }
 
-            // Duplicate Prevention check
-            const existingSheetLead = await this.googleSheetModel.findOne({
-                config_uuid: cfg.uuid,
-                sheet_gid: activeTab.sheet_gid,
-                row_number: row_number
-            });
-
-            if (existingSheetLead) {
-                console.log(`${label} Duplicate row found: config_uuid=${cfg.uuid}, sheet_gid=${activeTab.sheet_gid}, row_number=${row_number}`);
-                return 'duplicate';
-            }
-
             const tokenColIdx = cfg.token_column_index ?? 2;
             const orderPlacedColIdx = cfg.order_placed_column_index ?? 9;
             const orderCreatedAtColIdx = cfg.order_created_at_column_index ?? 12;
@@ -955,6 +1370,21 @@ export class SampannGoogleSheetService {
                 payload.lead_management_uuid = randomUUID();
             }
 
+            // ── Duplicate check: skip if same lead_group_uuid + phone_number already exists ──
+            const phoneNumber = payload.phone_number ?? null;
+            if (phoneNumber) {
+                const existingLead = await this.lead_management.findOne({
+                    lead_group_uuid: leadGroupUuid,
+                    phone_number: phoneNumber,
+                }).lean();
+                if (existingLead) {
+                    console.log(
+                        `${label} Duplicate skipped — lead_group_uuid=${leadGroupUuid}, phone_number=${phoneNumber} already exists in lead_management.`,
+                    );
+                    return 'duplicate';
+                }
+            }
+
             // Insert into lead_management
             await this.lead_management.create([payload]);
 
@@ -972,6 +1402,17 @@ export class SampannGoogleSheetService {
                 lead_status: "New",
                 token: finalToken
             }]);
+
+            // Insert into leads_in_queue directly using the same lead data
+            await this.leads_in_queue.create([{
+                lead_group_uuid: leadGroupUuid,
+                campaign_uuid: campaignUuid,
+                tenant_uuid: tenantUuid,
+                lead_management_uuid: payload.lead_management_uuid,
+                lead_sent: '1',
+                campaign_flag: cfg.campaign_flag ?? 'blended',
+            }]);
+            console.log(`${label} Inserted into leads_in_queue: lead_management_uuid=${payload.lead_management_uuid}, lead_group_uuid=${leadGroupUuid}`);
 
             return 'saved';
         } catch (err: any) {
@@ -1860,11 +2301,73 @@ export class SampannGoogleSheetService {
         return c;
     }
 
+    /**
+     * Normalises a private key string that may have been stored in MongoDB in
+     * various broken formats:
+     *  - Literal `\n` (two chars) instead of real newlines
+     *  - Double-escaped `\\n` (three chars)
+     *  - Windows `\r\n` line endings
+     *  - Missing PEM headers (rare but possible)
+     */
+    private normalizePrivateKey(raw: string): string {
+        let key = raw
+            .replace(/\\\\n/g, '\n')   // triple-escaped \\n → newline (must be first)
+            .replace(/\\n/g, '\n')      // single-escaped \n  → newline
+            .replace(/\r\n/g, '\n')     // Windows CRLF       → newline
+            .replace(/\r/g, '\n')       // bare CR            → newline
+            .trim();
+
+        // If PEM headers are missing, wrap the key so OpenSSL can parse it
+        if (!key.includes('-----BEGIN')) {
+            key = `-----BEGIN RSA PRIVATE KEY-----\n${key}\n-----END RSA PRIVATE KEY-----`;
+        }
+
+        return key;
+    }
+
     private buildJwtClient(credential: GoogleCredential): JWT {
-        return new JWT({
-            email: credential.client_email,
-            key: credential.private_key.replaceAll(String.raw`\n`, '\n'),
-            scopes: credential.scopes.split(','),
-        });
+        // credential.scopes can be stored as a comma-separated string OR as an
+        // array of strings depending on how the credential was saved.  Handle both.
+        let scopesArray: string[];
+        if (Array.isArray(credential.scopes)) {
+            scopesArray = credential.scopes as unknown as string[];
+        } else if (typeof credential.scopes === 'string' && (credential.scopes as string).length > 0) {
+            scopesArray = (credential.scopes as string).split(',').map((s: string) => s.trim()).filter(Boolean);
+        } else {
+            // Fallback: grant full Sheets + Drive read access
+            scopesArray = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive.readonly',
+            ];
+            console.warn(`[buildJwtClient] credential ${credential.uuid} has no scopes — using default spreadsheets + drive.readonly scopes.`);
+        }
+
+        const normalizedKey = this.normalizePrivateKey(credential.private_key);
+
+        try {
+            return new JWT({
+                email: credential.client_email,
+                key: normalizedKey,
+                scopes: scopesArray,
+            });
+        } catch (err: any) {
+            // Give a clear, actionable error instead of a cryptic OpenSSL message
+            console.error(
+                `[buildJwtClient] ❌ Failed to build JWT for credential_uuid=${credential.uuid}.\n` +
+                `  Email : ${credential.client_email}\n` +
+                `  Error : ${err?.message ?? err}\n` +
+                `  ► ACTION REQUIRED: The private_key stored in MongoDB for this credential is corrupted or\n` +
+                `    in an unsupported format.  Fix steps:\n` +
+                `    1. Go to Google Cloud Console → IAM & Admin → Service Accounts\n` +
+                `    2. Find account: ${credential.client_email}\n` +
+                `    3. Keys tab → Add Key → Create new key → JSON\n` +
+                `    4. Copy the new "private_key" value into MongoDB:\n` +
+                `       db.google_credentials.updateOne(\n` +
+                `         { uuid: "${credential.uuid}" },\n` +
+                `         { $set: { private_key: "<paste new key here>" } }\n` +
+                `       )`,
+            );
+            throw err;
+        }
     }
 }
