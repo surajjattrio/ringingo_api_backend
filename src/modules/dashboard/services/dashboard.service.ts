@@ -1198,10 +1198,68 @@ export class DashboardService {
             createdAt: { $gte: startDate.toDate(), $lte: endDate.toDate() }
         };
         if (agent_uuid) {
-            matchRules.user_uuid = agent_uuid;
+            if (Array.isArray(agent_uuid)) {
+                if (agent_uuid.length > 0) {
+                    matchRules.user_uuid = { $in: agent_uuid };
+                }
+            } else {
+                matchRules.user_uuid = agent_uuid;
+            }
         }
         if (campaign_uuid) {
-            matchRules.campaign_uuid = campaign_uuid;
+            if (Array.isArray(campaign_uuid)) {
+                if (campaign_uuid.length > 0) {
+                    matchRules.campaign_uuid = { $in: campaign_uuid };
+                }
+            } else {
+                matchRules.campaign_uuid = campaign_uuid;
+            }
+        }
+
+        // Determine target agents based on selected filters
+        let targetAgentUuids: string[] = [];
+        if (agent_uuid) {
+            if (Array.isArray(agent_uuid)) {
+                targetAgentUuids = agent_uuid.filter(uuid => !!uuid);
+            } else if (typeof agent_uuid === "string" && agent_uuid !== "") {
+                targetAgentUuids = [agent_uuid];
+            }
+        }
+
+        // If no agent filter is applied, but campaign filter is applied:
+        if (targetAgentUuids.length === 0 && campaign_uuid) {
+            const camps = Array.isArray(campaign_uuid) 
+                ? campaign_uuid.filter(uuid => !!uuid) 
+                : (typeof campaign_uuid === "string" && campaign_uuid !== "" ? [campaign_uuid] : []);
+                
+            if (camps.length > 0) {
+                // Find users explicitly assigned to or allowed to use the campaigns
+                const users = await this.user.find({
+                    tenant_uuid,
+                    $or: [
+                        { campaign_uuid: { $in: camps } },
+                        { allowed_campaign: { $in: camps } }
+                    ]
+                }).select("uuid").lean();
+                
+                const userUuids = users.map((u: any) => u.uuid);
+
+                // Also find users who took/made calls in these campaigns within the time range
+                const activeUsers = await this.cdrs.distinct("user_uuid", {
+                    tenant_uuid,
+                    campaign_uuid: { $in: camps },
+                    createdAt: { $gte: startDate.toDate(), $lte: endDate.toDate() }
+                });
+
+                const combined = new Set([...userUuids, ...activeUsers.filter(uuid => !!uuid)]);
+                targetAgentUuids = Array.from(combined);
+            }
+        }
+
+        // If still empty (meaning no agent or campaign filter was applied), fallback to all agents of the tenant
+        if (targetAgentUuids.length === 0) {
+            const agents = await this.user.find({ tenant_uuid }).select("uuid").lean();
+            targetAgentUuids = agents.map((a: any) => a.uuid);
         }
 
         const result = await this.cdrs.aggregate([
@@ -1217,6 +1275,15 @@ export class DashboardService {
                                 ringing_time: { $sum: { $toDouble: "$ringing_time" } },
                                 billsecond: { $sum: { $toDouble: "$billsecond" } },
                                 wrap_up_time: { $sum: { $toDouble: "$wrap_up_time" } }
+                            }
+                        }
+                    ],
+                    agentTalk: [
+                        {
+                            $group: {
+                                _id: "$user_uuid",
+                                billsecond: { $sum: { $toDouble: "$billsecond" } },
+                                hold_time: { $sum: { $toDouble: "$hold_time" } }
                             }
                         }
                     ],
@@ -1270,8 +1337,8 @@ export class DashboardService {
                                         ] 
                                     } 
                                 }
-                            }
-                        }
+                             }
+                         }
                     ],
                     outbound: [
                         { $match: { direction: "outbound" } },
@@ -1326,10 +1393,20 @@ export class DashboardService {
 
         const data = result[0];
         const kpiBase = data.kpis[0] || {};
+        const agentTalkList = data.agentTalk || [];
         const inb = data.inbound[0] || { total_calls: 0, connected_calls: 0, missed_calls: 0, dropped_calls: 0 };
         const outb = data.outbound[0] || { total_calls: 0, connected_calls: 0, missed_calls: 0, dropped_calls: 0 };
         const trafficData = data.traffic_trends || [];
         const dispTrends = data.disposition_trends || [];
+
+        // Build agent talk map for per-agent calibration
+        const agentTalkMap = new Map<string, number>();
+        agentTalkList.forEach((item: any) => {
+            if (item._id) {
+                const talk = (item.billsecond || 0) + (item.hold_time || 0);
+                agentTalkMap.set(String(item._id), talk);
+            }
+        });
 
         // 1. Process Traffic Trends (Fill all gaps for a consistent timeline)
         const traffic: { labels: string[], inbound: number[], outbound: number[] } = { labels: [], inbound: [], outbound: [] };
@@ -1369,11 +1446,8 @@ export class DashboardService {
 
         // Agent state metrics (idle / pause / break / ACW) are agent-scoped:
         // they come from agent_login_logout_report & idle_state_agent which have
-        // no campaign dimension.  We always compute them for the selected agent
-        // (or all agents when no agent filter), regardless of any campaign filter.
-        // CDR-based KPIs (wait/hold/ring/aht/wrap-up) are already correctly 0
-        // when the CDR aggregation returns no matching calls.
-        const stateMetrics = await this.getAgentStateMetrics(tenant_uuid, startDate, endDate, talkSec, agent_uuid);
+        // no campaign dimension.  We compute them for targetAgentUuids and perform per-agent calibration.
+        const stateMetrics = await this.getAgentStateMetrics(tenant_uuid, startDate, endDate, agentTalkMap, targetAgentUuids);
 
         const formattedResponse = {
             kpis: {
@@ -1405,19 +1479,17 @@ export class DashboardService {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    private async getAgentStateMetrics(tenant_uuid: string, startDate: any, endDate: any, totalCdrTalkSec: number, agentUuid?: string): Promise<{ idle: number, pause: number, break: number, acw: number }> {
+    private async getAgentStateMetrics(
+        tenant_uuid: string,
+        startDate: any,
+        endDate: any,
+        agentTalkMap: Map<string, number>,
+        agentUuids: string[]
+    ): Promise<{ idle: number, pause: number, break: number, acw: number }> {
         try {
             const start = startDate.toDate();
             const end = endDate.toDate();
 
-            // 1. Get agents — if a specific agent_uuid is provided, scope to only that agent
-            let agentUuids: string[];
-            if (agentUuid) {
-                agentUuids = [agentUuid];
-            } else {
-                const agents = await this.user.find({ tenant_uuid }).select("uuid").lean();
-                agentUuids = agents.map((a: any) => a.uuid);
-            }
             if (agentUuids.length === 0) return { idle: 0, pause: 0, break: 0, acw: 0 };
 
             // 2. Fetch login/logout and state records
@@ -1434,7 +1506,7 @@ export class DashboardService {
                 }).sort({ createdAt: 1 }).lean().exec()
             ]);
 
-            let totalBreakMs = 0, totalIdleSec = 0, totalPauseSec = 0, totalAcwSec = 0, totalStateTalkSec = 0;
+            let totalBreakMs = 0, totalIdleSec = 0, totalPauseSec = 0, totalAcwSec = 0;
             
             const loginByAgent = new Map<string, any[]>();
             loginResults.forEach((r: any) => {
@@ -1459,20 +1531,29 @@ export class DashboardService {
                 const cleanedStates = this.cleanLocalStateRecords(agentStates);
                 const sessions = this.calculateLocalSessions(agentLogins, end);
 
+                let agentIdle = 0;
+                let agentPause = 0;
+                let agentAcw = 0;
+                let agentStateTalk = 0;
+
                 if (sessions.length > 0 && cleanedStates.length > 0) {
                     const durations = this.calculateLocalStateDurations(sessions, cleanedStates);
-                    totalIdleSec += durations["0"] || 0;
-                    totalPauseSec += durations["4"] || 0;
-                    totalAcwSec += durations["5"] || 0;
-                    totalStateTalkSec += (durations["1"] || 0) + (durations["2"] || 0);
+                    agentIdle = durations["0"] || 0;
+                    agentPause = durations["4"] || 0;
+                    agentAcw = durations["5"] || 0;
+                    agentStateTalk = (durations["1"] || 0) + (durations["2"] || 0);
                 }
-            }
 
-            // 3. Talk-Time Calibration (Matching Report Logic)
-            // If CDR Talk > State Talk, subtract difference from Idle.
-            const talkDiff = totalCdrTalkSec - totalStateTalkSec;
-            if (talkDiff > 0) {
-                totalIdleSec = Math.max(0, totalIdleSec - talkDiff);
+                // Calibrate talk-time PER agent!
+                const agentCdrTalk = agentTalkMap.get(auuid) || 0;
+                const talkDiff = agentCdrTalk - agentStateTalk;
+                if (talkDiff > 0) {
+                    agentIdle = Math.max(0, agentIdle - talkDiff);
+                }
+
+                totalIdleSec += agentIdle;
+                totalPauseSec += agentPause;
+                totalAcwSec += agentAcw;
             }
 
             return { idle: totalIdleSec, pause: totalPauseSec, break: totalBreakMs / 1000, acw: totalAcwSec };
