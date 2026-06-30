@@ -3486,8 +3486,47 @@ return uniqueIds;
                 agent_logged_in_time = utCDate;
                 // updateBody[ "agent_logged_in_time" ] = utCDate;
             }
+            // Fetch current doc for all call/hold transitions
+            const needsPrevState = status === "1" || status === "2" || status === "7";
+            let prevStatus = null, segmentStart = null, callAcc = 0, holdAcc = 0;
+            if (needsPrevState) {
+                const currentDoc: any = await this.agent_live_report.findOne(
+                    { agent_uuid: uuid, tenant_uuid },
+                    { status: 1, call_start_time: 1, call_duration_acc: 1, hold_duration_acc: 1 }
+                ).lean().exec();
+                prevStatus = currentDoc?.status;
+                segmentStart = currentDoc?.call_start_time;
+                callAcc = Number(currentDoc?.call_duration_acc) || 0;
+                holdAcc = Number(currentDoc?.hold_duration_acc) || 0;
+            }
+            const now = new Date().toISOString();
+            const elapsedSec = segmentStart
+                ? Math.floor((Date.now() - new Date(segmentStart).getTime()) / 1000)
+                : 0;
+
             if (status == "1" || status == "2") {
                 updateBody = { ...updateBody, $inc: { total_calls: 1 } };
+                const isNewCall = !prevStatus || prevStatus === "0" || prevStatus === "3" || prevStatus === "4" || prevStatus === "5" || prevStatus === "6";
+                if (isNewCall) {
+                    // Fresh call — reset both accumulators and start new segment
+                    updateBody = { ...updateBody, call_start_time: now, call_duration_acc: 0, hold_duration_acc: 0 };
+                } else if (prevStatus === "7") {
+                    // Resuming from hold — save hold elapsed, start new call segment
+                    updateBody = { ...updateBody, call_start_time: now, hold_duration_acc: holdAcc + elapsedSec };
+                } else {
+                    // Same call, another FS event (2→2) — save call elapsed, start new segment
+                    updateBody = { ...updateBody, call_start_time: now, call_duration_acc: callAcc + elapsedSec };
+                }
+            }
+            if (status === "7") {
+                // Going on hold — save on-call elapsed into call accumulator, start hold segment
+                if (prevStatus === "1" || prevStatus === "2") {
+                    updateBody = { ...updateBody, call_start_time: now, call_duration_acc: callAcc + elapsedSec };
+                }
+            }
+            if (status === "0" || status === "3" || status === "4" || status === "5" || status === "6") {
+                // Call ended — clear all duration tracking
+                updateBody = { ...updateBody, call_start_time: "", call_duration_acc: 0, hold_duration_acc: 0 };
             }
             updateBody = {
                 ...updateBody, status, phone_number, campaign_type, campaign_name, extension_name, extension_uuid, agent_name, campaign_uuid, agent_logged_in_time

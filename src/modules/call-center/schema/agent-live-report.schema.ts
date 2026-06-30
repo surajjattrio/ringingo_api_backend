@@ -59,6 +59,15 @@ export class AgentLiveReportSchema {
     @Prop()
     agent_idle_time:String
 
+    @Prop({default : ""})
+    call_start_time : String  // ISO timestamp — when the current call/hold segment started
+
+    @Prop({default : 0})
+    call_duration_acc : Number  // accumulated on-call seconds (status 1 or 2) from previous segments
+
+    @Prop({default : 0})
+    hold_duration_acc : Number  // accumulated hold seconds (status 7) from previous segments
+
 }
 
 export const agentLiveReportSchema = SchemaFactory.createForClass(AgentLiveReportSchema);

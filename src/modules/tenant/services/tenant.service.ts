@@ -1094,6 +1094,15 @@ export class TenantService {
         recentActivityTime = data?.updatedAt;
         let diff = this.convertDuration(recentActivityTime);
         data["from_last_logged_in"] = diff;
+        // Total Duration = accumulated on-call seconds + accumulated hold seconds + current segment elapsed
+        const isOnCall = data?.status === "1" || data?.status === "2" || data?.status === "7";
+        if (isOnCall && data?.call_start_time) {
+          const elapsedSec = Math.floor((Date.now() - new Date(data.call_start_time).getTime()) / 1000);
+          const totalSec = (Number(data?.call_duration_acc) || 0) + (Number(data?.hold_duration_acc) || 0) + elapsedSec;
+          data["total_duration"] = this.convertDuration(new Date(Date.now() - totalSec * 1000).toISOString());
+        } else {
+          data["total_duration"] = "";
+        }
         console.log("asfbasdas agent list logss", data)
         if (data.status != "3") {
           data["break_name"] = ""
