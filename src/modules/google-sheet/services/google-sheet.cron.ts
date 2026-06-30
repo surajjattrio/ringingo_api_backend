@@ -22,7 +22,7 @@ export class GoogleSheetCron {
         this.logger.log('[GoogleSheetCron] Cron job started');
 
         const results = await Promise.allSettled([
-            this.service.callGoogleSheetCron(),
+            // this.service.callGoogleSheetCron(),
             this.sampann_service.callGoogleSheetCron(),
         ]);
 

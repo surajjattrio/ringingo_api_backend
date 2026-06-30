@@ -22,6 +22,21 @@ export class GoogleSheetController {
         return { statusCode: 201, message: 'Google Sheet sync completed' };
     }
 
+    /**
+     * Triggers parallel sync of all tabs across every active Google Sheet configuration.
+     * Idempotent — safe to call multiple times without creating duplicates.
+     */
+    @Public()
+    @Get('/auric/sync-all-tabs')
+    async syncAllTabs() {
+        const result = await this.sheets_service.syncAllTabsFromAllActiveSheets();
+        return {
+            statusCode: 200,
+            message: 'Parallel tab sync completed',
+            data: result,
+        };
+    }
+
     /** Save Google Service Account credentials */
     @Public()
     @Post('credentials')
