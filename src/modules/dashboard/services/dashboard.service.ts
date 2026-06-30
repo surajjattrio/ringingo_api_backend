@@ -1299,7 +1299,8 @@ export class DashboardService {
                                             { 
                                                 $and: [
                                                     { $gt: [{ $toDouble: "$billsecond" }, 0] },
-                                                    { $eq: ["$call_state", "normal"] }
+                                                    { $eq: ["$call_state", "normal"] },
+                                                    { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }
                                                 ] 
                                             }, 
                                             1, 0
@@ -1325,6 +1326,12 @@ export class DashboardService {
                                             { 
                                                 $or: [
                                                     { $eq: ["$call_state", "drop"] },
+                                                    { 
+                                                        $and: [
+                                                            { $eq: ["$call_state", "normal"] },
+                                                            { $eq: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }
+                                                        ] 
+                                                    },
                                                     { 
                                                         $and: [
                                                             { $eq: ["$call_state", "missed"] },
