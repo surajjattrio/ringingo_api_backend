@@ -85,6 +85,10 @@ export class CdrsService {
         let startDate: any = "";
         let endDate: any = "";
 
+        // ✅ call_status is calculated field, so keep it separately
+        let callStatusFilter: any = "";
+
+
         let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username ' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: 'telecom_circle', select: 'name uuid -_id' }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "ivr", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }];
 
         // ===========================
@@ -122,6 +126,11 @@ export class CdrsService {
 
         delete searchParams.callstart;
         delete searchParams.callend;
+        delete searchParams.timezone;
+        delete searchParams.page;
+        delete searchParams.limit;
+        delete searchParams.quarter_selected;
+        delete searchParams.quarter_collection_name;
 
         // ===========================
         // ✅ Build filters dynamically
@@ -153,6 +162,11 @@ export class CdrsService {
             } else {
                 key = filedName;
                 searchFlag = -1;
+            }
+            // ✅ call_status is not available in DB, so don't push in Mongo where
+            if (key === "call_status") {
+                callStatusFilter = filedValue;
+                continue;
             }
             if (key === "billsecond") {
                 //const [ hours, minutes, seconds ] = filedValue.split( ":" ).map( Number );
@@ -360,11 +374,13 @@ export class CdrsService {
         const allDispositions = await this.disposition.find().select({ name: 1, disposition_uuid: 1, parent_disposition: 1 }).lean();
         const dispositionMap = new Map(allDispositions.map(d => [d.disposition_uuid, d]));
 
-        result = await this.cdrs.find({ $and: where }).limit(perPage).skip(skip).populate(populateFields).sort({ _id: -1 }).lean().exec();
+        // result = await this.cdrs.find({ $and: where }).limit(perPage).skip(skip).populate(populateFields).sort({ _id: -1 }).lean().exec();
+        result = await this.cdrs.find({ $and: where }).populate(populateFields).sort({ _id: -1 }).lean().exec();
 
         if (result.length > 0) {
             count = await this.cdrs.find({ $and: where }).count().exec();
             Logger.debug(count, "Search result count");
+
             // result?.map((data) => {
             //     data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
             // })
@@ -372,7 +388,7 @@ export class CdrsService {
                 const data = typeof doc.toObject === 'function' ? doc.toObject() : doc; // already a plain object
 
                 // Existing formatting (unchanged)
-		if (data.disposition !== "NO_ROUTE_DESTINATION") {
+                if (data.disposition !== "NO_ROUTE_DESTINATION") {
                     data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
                 }
 
@@ -437,7 +453,7 @@ export class CdrsService {
                 if (data.direction === "outbound" && rawBillsecond === 0) {
                     computedTotalDuration = Math.max(Number.parseInt(data.total_duration) || 0, computedTotalDuration);
                 }
-                const raw_Call_status = data.actual_talktime || 0;
+                const rawCallStatus = data.actual_talktime || 0;
                 data.billsecond = this.secondsToHHMMSS(rawBillsecond);
                 data.total_duration = this.secondsToHHMMSS(computedTotalDuration);
                 data.hold_time = this.secondsToHHMMSS(rawHoldTime);
@@ -460,20 +476,31 @@ export class CdrsService {
                         data.actual_talktime = data.billsecond;
                     }
                 }
-                data.call_status =
-                    data.direction === "inbound"
-                        ? Number(raw_Call_status) > 0
-                            ? "Connected"
-                            : "Abandoned"
-                        : data.direction === "outbound"
-                            ? data.actual_talktime !== "00:00:00"
-                                ? "Connected"
-                                : "Not Connected"
-                            : "Not Connected";
+                // ✅ Final call status logic
+                if (direction === "inbound") {
+                    data.call_status = Number(rawCallStatus) > 0 ? "Connected" : "Abandoned";
+                } else if (direction === "outbound") {
+                    data.call_status = data.actual_talktime !== "00:00:00" ? "Connected" : "Not Connected";
+                } else {
+                    data.call_status = "Not Connected";
+                }
 
-                return data; // ✅ important
+                return data;
             });
-            return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, result, count)
+
+            // ✅ Apply call_status filter after mapping
+            if (callStatusFilter) {
+                result = result.filter((item: any) => {
+                    const direction = String(item.direction || "").toLowerCase();
+                    if (direction === "inbound") { return (["Connected", "Abandoned"].includes(callStatusFilter) && item.call_status === callStatusFilter); }
+                    if (direction === "outbound") { return (["Connected", "Not Connected"].includes(callStatusFilter) && item.call_status === callStatusFilter); }
+                    return item.call_status === callStatusFilter;
+                });
+            }
+
+            count = result.length;  // ✅ Total filtered count
+            const paginatedResult = result.slice(skip, skip + perPage);
+            return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, paginatedResult, count)
         } else {
             Logger.error(count, "Search result count");
             return this.commonDbFn.sendResponseWithCount(HttpStatus.NOT_FOUND, result, count)
@@ -1259,7 +1286,7 @@ export class CdrsService {
                 for (const doc of batch) {
                     const data: any = typeof (doc as any).toObject === 'function' ? (doc as any).toObject() : doc;
 
-                       const callstart = data.disposition !== "NO_ROUTE_DESTINATION" ? data.callstart
+                    const callstart = data.disposition !== "NO_ROUTE_DESTINATION" ? data.callstart
                         ? moment.tz(new Date(data.callstart + 'Z'), timezone).format('YYYY-MM-DD HH:mm:ss')
                         : '' : data.callstart;
 
@@ -1278,7 +1305,7 @@ export class CdrsService {
                     const leadGroupName = data.lead_details?.[0]?.lead_group?.[0]?.name || '';
                     const userGroupName = user?.user_group?.[0]?.name || user?.user_group?.name || '';
                     const comment = data.custom_callid !== "" ? data.notes?.[0]?.comment : '';
-                    const ivr_name = data?.ivr?.[0]?.name
+                    const ivr_name = data?.ivr?.[0]?.name;
 
                     // const billsecond = data.direction === 'outbound'
                     //     ? this.secondsToHHMMSS(data.billsecond)

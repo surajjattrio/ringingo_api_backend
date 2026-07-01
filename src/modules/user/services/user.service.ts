@@ -306,9 +306,97 @@ export class UserService {
                     ],
                     as: "user"
                 }
+            },{ $unwind: "$user" },
+            {
+                $addFields: {
+                    allowedCampaignUuids: "$user.allowed_campaign.value"
+                }
             },
-            { $unwind: "$user" },
-            { $project: { allowed_campaign: "$user.allowed_campaign", _id: 0 } }
+            {
+                $lookup: {
+                    from: "blended_campaign",
+                    let: { allowedUuids: "$allowedCampaignUuids" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $in: ["$uuid", "$$allowedUuids"] },
+                                        { $in: ["$status", [0, "0"]] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $project: { _id: 0, uuid: 1 } }
+                    ],
+                    as: "blended_active"
+                }
+            },
+            {
+                $lookup: {
+                    from: "inbound_campaign",
+                    let: { allowedUuids: "$allowedCampaignUuids" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $in: ["$uuid", "$$allowedUuids"] },
+                                        { $in: ["$status", [0, "0"]] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $project: { _id: 0, uuid: 1 } }
+                    ],
+                    as: "inbound_active"
+                }
+            },
+            {
+                $lookup: {
+                    from: "outbound_campaign",
+                    let: { allowedUuids: "$allowedCampaignUuids" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $in: ["$uuid", "$$allowedUuids"] },
+                                        { $in: ["$status", [0, "0"]] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $project: { _id: 0, uuid: 1 } }
+                    ],
+                    as: "outbound_active"
+                }
+            },
+            {
+                $addFields: {
+                    activeCampaignUuids: {
+                        $concatArrays: [
+                            "$blended_active.uuid",
+                            "$inbound_active.uuid",
+                            "$outbound_active.uuid"
+                        ]
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    allowed_campaign: {
+                        $filter: {
+                            input: "$user.allowed_campaign",
+                            as: "campaign",
+                            cond: {
+                                $in: ["$$campaign.value", "$activeCampaignUuids"]
+                            }
+                        }
+                    }
+                }
+            }
         ]);
 
         return result[0]?.allowed_campaign || [];
