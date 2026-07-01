@@ -21,6 +21,9 @@ export class IdleStateAgentSchema {
     tenant_uuid : String
 
     @Prop()
+    campaign_uuid : String
+
+    @Prop()
     date : String
 }
 

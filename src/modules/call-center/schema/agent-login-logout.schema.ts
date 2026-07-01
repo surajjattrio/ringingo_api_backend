@@ -33,6 +33,9 @@ export class AgentLoginLogoutSchema {
 
     @Prop()
     breakcode_uuid : string
+
+    @Prop()
+    campaign_uuid : string
 }
 let  agentLoginLogoutSchema = SchemaFactory.createForClass(AgentLoginLogoutSchema);
 agentLoginLogoutSchema.virtual( 'breakcode', {

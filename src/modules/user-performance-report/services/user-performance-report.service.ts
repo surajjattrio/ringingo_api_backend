@@ -363,11 +363,27 @@ export class UserPerformanceReportService {
     const rangeStart = moment.tz(startdate, timezone).startOf('day');
     const rangeEnd   = moment.tz(enddate, timezone).endOf('day');
 
-    const [getUsersCallData, getAgentHistory, getAgentIdleACWHistory] = await Promise.all([
-      this.fetchDataFromCdrs(tenant_uuid, rangeStart, rangeEnd, allUsers, direction, campaign_uuid),
-      this.getAgentHistory(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
-      this.getIdleAndACWTime(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
-    ]);
+    // const [getUsersCallData, getAgentHistory, getAgentIdleACWHistory] = await Promise.all([
+    //   this.fetchDataFromCdrs(tenant_uuid, rangeStart, rangeEnd, allUsers, direction, campaign_uuid),
+    //   this.getAgentHistory(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
+    //   this.getIdleAndACWTime(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
+    // ]);
+
+    let getUsersCallData, getAgentHistory, getAgentIdleACWHistory;
+
+    if (campaign_uuid && campaign_uuid.length > 0) {
+      [getUsersCallData, getAgentHistory, getAgentIdleACWHistory] = await Promise.all([
+        this.fetchDataFromCdrs(tenant_uuid, rangeStart, rangeEnd, allUsers, direction, campaign_uuid),
+        this.getAgentHistory(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone, campaign_uuid),
+        this.getIdleAndACWTime(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone, campaign_uuid),
+      ]);
+    } else {
+      [getUsersCallData, getAgentHistory, getAgentIdleACWHistory] = await Promise.all([
+        this.fetchDataFromCdrs(tenant_uuid, rangeStart, rangeEnd, allUsers, direction),
+        this.getAgentHistory(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
+        this.getIdleAndACWTime(tenant_uuid, rangeStart, rangeEnd, allUsers, timezone),
+      ]);
+    }
 
     // Merge data
     let result = this.mergeCallsAndAgentData(getUsersCallData, getAgentHistory);
@@ -697,19 +713,32 @@ export class UserPerformanceReportService {
   @return            : Agent's data with required details
   */
 
-  async getAgentHistory(tenant_uuid, callstart, callend, allUsers, timezone) {
+  async getAgentHistory(tenant_uuid, callstart, callend, allUsers, timezone, campaign_uuid?) {
     try {
       callstart = moment.tz(callstart, timezone);
       callend = moment.tz(callend, timezone);
 
+      let matchedObj;
+      if (campaign_uuid) {
+        matchedObj = {
+          tenant_uuid,
+          campaign_uuid: { $in: campaign_uuid && campaign_uuid.length > 0 ? (Array.isArray(campaign_uuid) ? campaign_uuid : campaign_uuid.split(',')) : [] },
+          agent_uuid: { $in: allUsers },
+          createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() },
+        }
+      }
+      else {
+        matchedObj = {
+          tenant_uuid,
+          agent_uuid: { $in: allUsers },
+          createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() },
+        }
+      }
+
       let result = await this.agent_login_logout_report
         .aggregate([
           {
-            $match: {
-              tenant_uuid,
-              agent_uuid: { $in: allUsers },
-              createdAt: { $gte: callstart.toDate(), $lte: callend.toDate() },
-            },
+            $match: matchedObj
           },
           {
             $lookup: {
@@ -999,7 +1028,7 @@ export class UserPerformanceReportService {
       if (agentRecord) {
         finalData.push({ ...data, login_hours: agentRecord.loggedInHours, break_time: agentRecord.breakHours, net_login_hours: agentRecord.net_login_hours, break_details: agentRecord.break_details });
       } else {
-        finalData.push({ ...data, login_hours: '0h 0m', break_time: '0h 0m', net_login_hours: "00:00:00", break_details: "{}" });
+        finalData.push({ ...data, login_hours: '00:00:00', break_time: '00:00:00', net_login_hours: "00:00:00", break_details: "{}" });
       }
     });
 
@@ -1130,25 +1159,34 @@ export class UserPerformanceReportService {
   @return            : Agent's data with required details
   */
 
-  async getIdleAndACWTime(tenant_uuid, callstart, callend, allUsers, timezone) {
+  async getIdleAndACWTime(tenant_uuid, callstart, callend, allUsers, timezone, campaign_uuid?) {
     try {
       const dayStart = moment.tz(callstart, timezone).startOf('day').toDate();
       const dayEnd   = moment.tz(callend, timezone).endOf('day').toDate();
       const todayStr = moment().tz(timezone).format("YYYY-MM-DD");
 
+      let matchedObj;
+      if (campaign_uuid) {
+        matchedObj = {
+          tenant_uuid,
+          agent_uuid: { $in: allUsers },
+          campaign_uuid: { $in: campaign_uuid && campaign_uuid.length > 0 ? (Array.isArray(campaign_uuid) ? campaign_uuid : campaign_uuid.split(',')) : [] },
+          createdAt: { $gte: dayStart, $lte: dayEnd }
+        }
+      }
+      else {
+        matchedObj = {
+          tenant_uuid,
+          agent_uuid: { $in: allUsers },
+          createdAt: { $gte: dayStart, $lte: dayEnd }
+        }
+      }
+
       // 🔹 2 queries for the FULL date range regardless of how many days
       const [stateResults, loginResults] = await Promise.all([
-        this.idle_state_agent.find({
-          tenant_uuid,
-          agent_uuid: { $in: allUsers },
-          createdAt: { $gte: dayStart, $lte: dayEnd }
-        }).sort({ createdAt: 1 }).lean().exec(),
+        this.idle_state_agent.find(matchedObj).sort({ createdAt: 1 }).lean().exec(),
 
-        this.agent_login_logout_report.find({
-          tenant_uuid,
-          agent_uuid: { $in: allUsers },
-          createdAt: { $gte: dayStart, $lte: dayEnd }
-        }).sort({ createdAt: 1 }).lean().exec()
+        this.agent_login_logout_report.find(matchedObj).sort({ createdAt: 1 }).lean().exec()
       ]);
 
       // 🔹 Pre-group state records by user_uuid for O(1) per-user access
@@ -1373,7 +1411,7 @@ export class UserPerformanceReportService {
           total_idle_time: this.formatTimeFromSeconds(idleSec, true),
           total_acw_time: this.formatTimeFromSeconds(idleInfo.durations[5] || 0, true),
           total_pause_time: this.formatTimeFromSeconds(idleInfo.durations[4] || 0, true),
-          totalHoldTime: this.formatTimeFromSeconds(idleInfo.durations[7] || 0, true),
+          // totalHoldTime: this.formatTimeFromSeconds(idleInfo.durations[7] || 0, true),
         });
       } else {
         finalData.push({

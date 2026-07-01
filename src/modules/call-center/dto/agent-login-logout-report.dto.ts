@@ -29,4 +29,6 @@ export class AgentLoginLogoutReportDto {
     @IsOptional()
     breakcode_uuid : string
 
+    @IsOptional()
+    campaign_uuid: string
 }

@@ -3533,7 +3533,7 @@ return uniqueIds;
             };
             let response = await this.agent_live_report.updateOne({ agent_uuid: uuid, tenant_uuid }, updateBody, { upsert: true }).exec();
             //Add entry to calculate Idle and ACW in collection
-            await this.addIdleACWEntryToDB(uuid, status, tenant_uuid);
+            await this.addIdleACWEntryToDB(uuid, status, tenant_uuid, campaign_uuid);
 
             //Add extension details to outbound ring group section
             this.addExtensionDetailsToRinggroup(uuid, campaign_uuid, extension_name);
@@ -4442,9 +4442,9 @@ return uniqueIds;
     @return Object       : Success
     */
 
-    async addIdleACWEntryToDB(agentUUID, status, tenant_uuid) {
+    async addIdleACWEntryToDB(agentUUID, status, tenant_uuid, campaign_uuid?) {
         let todayDate = await this.commonFn.getTodayDate();
-        let obj = { agent_uuid: agentUUID, status, tenant_uuid, date: todayDate };
+        let obj = { agent_uuid: agentUUID, status, tenant_uuid, campaign_uuid, date: todayDate };
         const result = new this.idle_state_agent(obj);
         await result.save();
         Logger.debug(`Entry added : ${JSON.stringify(obj)}`);
