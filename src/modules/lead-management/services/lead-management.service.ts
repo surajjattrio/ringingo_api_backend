@@ -223,7 +223,7 @@ export class LeadManagementService {
             this.bindLeadWithCdrsAndNotes(cdrs_uuid, response.message.lead_management_uuid);
         }
 
-	// Call resetLeads after successful lead creation
+        // Call resetLeads after successful lead creation
         if (campaign_uuid && lead_group_uuid && tenant_uuid) {
             const resetLeadDto: ResetLeadDto = {
                 lead_group_uuid: lead_group_uuid as string,
@@ -293,7 +293,7 @@ export class LeadManagementService {
         queryParams.tableName = 'lead_management_unique'
         // Include createdAt and updatedAt in the response
         queryParams.includeTimestamps = true;
-        
+
         return this.commonDbFn.findAllWithPagination(this.lead_management, queryParams, searchFields, populateFields);
     }
 
@@ -689,15 +689,21 @@ export class LeadManagementService {
         }
 
         for (const leadgroupuuid of uniqueLeadGroupUUIDs) {
-            const lead_group_data = await this.lead_group.find({ uuid: leadgroupuuid }).select('campaign_uuid,campaign_flag').exec();
+            const lead_group_data = await this.lead_group.findOne({ uuid: leadgroupuuid }).select('campaign_uuid campaign_flag').exec();
             // console.log( lead_group_data );
+
+            // Skip if lead group not found
+            if (!lead_group_data) {
+                Logger.warn(`Lead group not found for uuid: ${leadgroupuuid}`);
+                continue;
+            }
             await this.commonDbFn.leadgroup_count_update(this.lead_group, this.lead_management, leadgroupuuid)
-            if (lead_group_data[0]['campaign_flag'] == 'blended') {
-                await this.commonDbFn.leads_count_update(this.lead_group, this.lead_management, this.blended_campaign, leadgroupuuid, lead_group_data[0]['campaign_uuid']);
-                await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.blended_campaign, lead_group_data[0]['campaign_uuid']);
+            if (lead_group_data.campaign_flag === 'blended') {
+                await this.commonDbFn.leads_count_update(this.lead_group, this.lead_management, this.blended_campaign, leadgroupuuid, lead_group_data.campaign_uuid);
+                await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.blended_campaign, lead_group_data.campaign_uuid);
             } else {
-                await this.commonDbFn.leads_count_update(this.lead_group, this.lead_management, this.outbound_campaign, leadgroupuuid, lead_group_data[0]['campaign_uuid']);
-                await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, lead_group_data[0]['campaign_uuid']);
+                await this.commonDbFn.leads_count_update(this.lead_group, this.lead_management, this.outbound_campaign, leadgroupuuid, lead_group_data.campaign_uuid);
+                await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, lead_group_data.campaign_uuid);
             }
         }
         Logger.debug(`Lead deleted successfully by uuid : ${lead_management_uuid} \n`);
