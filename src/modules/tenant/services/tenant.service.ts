@@ -1390,9 +1390,12 @@ export class TenantService {
     try {
       let runningCalls: any = await this.commonFn.getRunningCalls();
       let data = runningCalls?.body ? JSON.parse(runningCalls?.body) : runningCalls?.body;
+      const normalize = (n: string) => (n ? n.replace(/^\+/, '') : '');
       matched = data?.rows.filter(function (el) {
-        if (direction == "inbound" || direction == "blended") {
-          return el.b_sent_callee_num == destination;
+        if (direction == "inbound") {
+          return normalize(el.cid_num) == normalize(destination) || el.dest == destination;
+        } else if (direction == "blended") {
+          return normalize(el.cid_num) == normalize(destination) || el.dest == destination;
         } else {
           return el.dest == destination;
         }
@@ -1909,7 +1912,7 @@ export class TenantService {
 
       const whatsappPermission = role.module_permission?.messaging?.whatsapp;
       return Number(whatsappPermission) > 0;
-    } catch (error) {
+    } catch (error:any) {
       Logger.error(`Error checking WhatsApp permission for role ${role_uuid}: ${error.message}`);
       return false;
     }
@@ -2102,7 +2105,7 @@ export class TenantService {
             Logger.error(`Failed to generate token, API response: ${JSON.stringify(response.data)}`);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, "Failed to generate token");
         }
-    } catch (error) {
+    } catch (error: any) {
         Logger.error("SSO Token Generation Error: " + (error.response?.data ? JSON.stringify(error.response.data) : error.message));
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, "Error generating SSO token from vendor");
     }
@@ -2118,7 +2121,7 @@ export class TenantService {
       try {
           await this.tenantRabbitmqService.syncManual('tenant.created', tenant);
           return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Tenant synced successfully with external application");
-      } catch (error) {
+      } catch (error:any) {
           const errorMessage = error.response?.data?.message || error.message || "Unknown error occurred during sync";
           return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, `Sync failed: ${errorMessage}`);
       }
