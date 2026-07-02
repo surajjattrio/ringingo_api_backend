@@ -391,8 +391,7 @@ export class CdrsService {
                 if (data.disposition !== "NO_ROUTE_DESTINATION") {
                     data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
                 }
-                delete searchParams.timezone;
-                
+
                 // ✅ dial_method mapping (string-based)
                 if (data?.dial_method !== undefined) {
                     switch (data.dial_method) {
