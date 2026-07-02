@@ -388,9 +388,9 @@ export class CdrsService {
                 const data = typeof doc.toObject === 'function' ? doc.toObject() : doc; // already a plain object
 
                 // Existing formatting (unchanged)
-                if (data.disposition !== "NO_ROUTE_DESTINATION") {
-                    data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
-                }
+                // if (data.disposition !== "NO_ROUTE_DESTINATION") {
+                //     data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
+                // }
 
                 // ✅ dial_method mapping (string-based)
                 if (data?.dial_method !== undefined) {
