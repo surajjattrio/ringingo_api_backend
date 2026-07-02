@@ -526,6 +526,16 @@ export class SocketService implements OnModuleInit {
     this.server.to(agent_uuid).emit("agent-event", event);
   }
 
+  emitAgentStateEvent(agent_uuid: string, type: string, payload: any) {
+    console.log("Inside socket gateway", type, payload);
+    if (!agent_uuid) return;
+    this.server.to(agent_uuid).emit("agent-event", {
+      type,
+      payload: payload ?? {}
+    });
+    console.log("socket snett");
+  }
+
   adminLogout(agent_uuid: string, data: any) {
     console.log("Inside socket gateway", data);
     this.server.to(agent_uuid).emit("logout-admin", data);

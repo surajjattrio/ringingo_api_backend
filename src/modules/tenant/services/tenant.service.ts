@@ -48,6 +48,15 @@ import { SocketService } from '../../websockets/websockets.gateway';
 import { UserDocument, UserSchema } from 'src/modules/user/schema/user.schema';
 import { TenantRabbitmqService } from './tenant-rabbitmq.service';
 import { RolesDocument, RolesSchema } from 'src/modules/roles/schema/roles-schema';
+
+export type AgentStateType = 'pause' | 'idle';
+
+export function buildAgentStateUpdate(state: AgentStateType) {
+  return state === 'pause'
+    ? { status: '4', break_name: '', break_duration: '' }
+    : { status: '0', break_name: '', break_duration: '' };
+}
+
 @Injectable()
 export class TenantService {
 
@@ -1993,9 +2002,7 @@ export class TenantService {
 
   // agent on break
   async putAgentOnBreak(uuid, body) {
-    console.log("Inside serviceee")
     const { tenant_uuid, name, duration } = body
-    console.log("Inside serviceee boidy", body)
 
     await this.agent_live_report.updateOne(
       {
@@ -2014,7 +2021,6 @@ export class TenantService {
       }
     );
 
-
     this.socketService.emitToAgent(uuid, {
       type: 'BREAK',
       payload: { status: 'break', ...body }
@@ -2029,8 +2035,7 @@ export class TenantService {
   }
 
   async putAgentOffBreak(uuid, body) {
-    // console.log("Inside serviceee")
-    const { tenant_uuid, break_name } = body
+    const { tenant_uuid } = body
 
     await this.agent_live_report.updateOne(
       {
@@ -2060,6 +2065,63 @@ export class TenantService {
       uuid,
       breakData: body,
     };
+  }
+
+  private async toggleAgentState(uuid, body, state: AgentStateType) {
+    const { tenant_uuid } = body || {};
+    const currentAgent = await this.agent_live_report.findOne(
+      {
+        $and: [
+          { tenant_uuid: tenant_uuid },
+          { agent_uuid: uuid },
+          { status: { $ne: "6" } },
+          { agent_logged_in_time: { $regex: this.commonFn.getTodayDate(), $options: 'i' } }
+        ]
+      },
+      { status: 1, _id: 0 }
+    ).exec();
+
+    const currentStatus = currentAgent?.status?.toString();
+    const nextState = state === 'pause'
+      ? currentStatus === '4' ? 'idle' : 'pause'
+      : currentStatus === '0' ? 'pause' : 'idle';
+    const stateUpdate = buildAgentStateUpdate(nextState);
+
+    await this.agent_live_report.updateOne(
+      {
+        $and: [
+          { tenant_uuid: tenant_uuid },
+          { agent_uuid: uuid },
+          { status: { $ne: "6" } },
+          { agent_logged_in_time: { $regex: this.commonFn.getTodayDate(), $options: 'i' } }
+        ]
+      },
+      {
+        $set: stateUpdate
+      }
+    );
+
+    this.socketService.emitAgentStateEvent(uuid, nextState === 'pause' ? 'PAUSE' : 'IDLE', {
+      status: nextState,
+      ...body
+    });
+
+    return {
+      success: true,
+      message: nextState === 'pause'
+        ? 'Agent paused successfully'
+        : 'Agent set to idle successfully',
+      uuid,
+      stateData: body,
+    };
+  }
+
+  async putAgentPause(uuid, body) {
+    return this.toggleAgentState(uuid, body, 'pause');
+  }
+
+  async putAgentIdle(uuid, body) {
+    return this.toggleAgentState(uuid, body, 'idle');
   }
 
   async generateWabaSsoToken(user: any) {

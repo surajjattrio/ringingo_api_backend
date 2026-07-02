@@ -186,7 +186,6 @@ export class TenantController {
 
   putAgentOnBreak(@Param() params: any, @Body() body: any){
     const {uuid,feature} = params;
-    console.log("Inside constroller",uuid,body)
     let result;
     switch (feature) {
       case "on":
@@ -198,6 +197,22 @@ export class TenantController {
 
     }
     
+    return result;
+  }
+
+  @Put("agent-state/:feature/:uuid")
+  @putDecoraters( "Agent state updated successfully", "Agent state by Tenant" )
+  putAgentState(@Param() params: any, @Body() body: any){
+    const {uuid,feature} = params;
+    let result;
+    switch (feature) {
+      case "pause":
+        result = this.tenant.putAgentPause(uuid,body)
+        break;
+      case "idle":
+        result = this.tenant.putAgentIdle(uuid,body)
+        break;
+    }
     return result;
   }
 
