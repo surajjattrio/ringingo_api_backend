@@ -126,7 +126,7 @@ export class CdrsService {
 
         delete searchParams.callstart;
         delete searchParams.callend;
-        delete searchParams.timezone;
+        // delete searchParams.timezone;
         delete searchParams.page;
         delete searchParams.limit;
         delete searchParams.quarter_selected;
@@ -388,10 +388,11 @@ export class CdrsService {
                 const data = typeof doc.toObject === 'function' ? doc.toObject() : doc; // already a plain object
 
                 // Existing formatting (unchanged)
-                // if (data.disposition !== "NO_ROUTE_DESTINATION") {
-                //     data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
-                // }
-
+                if (data.disposition !== "NO_ROUTE_DESTINATION") {
+                    data.callstart = moment.tz(new Date(data.callstart + "Z"), searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
+                }
+                delete searchParams.timezone;
+                
                 // ✅ dial_method mapping (string-based)
                 if (data?.dial_method !== undefined) {
                     switch (data.dial_method) {
