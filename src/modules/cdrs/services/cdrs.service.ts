@@ -51,7 +51,7 @@ export class CdrsService {
         let objWC, whereClause: any = [];
 
         //Check Role type
-        let { role, tenant_uuid, uuid } = searchParams;
+        let { role, tenant_uuid, uuid, timezone } = searchParams;
         if (role == "tenant") {
             where.push({ tenant_uuid: tenant_uuid });
             whereClause.push({ tenant_uuid: tenant_uuid });
@@ -81,6 +81,12 @@ export class CdrsService {
         delete searchParams.role;
         delete searchParams.domain;
         delete searchParams.uuid;
+        delete searchParams.timezone;
+        delete searchParams.concurrent_calls;
+        delete searchParams.manager_uuid;
+        delete searchParams.assigned_manager_role;
+        delete searchParams.module;
+        delete searchParams.parent_uuid;
 
         let startDate: any = "";
         let endDate: any = "";
@@ -101,16 +107,16 @@ export class CdrsService {
          obj = { "createdAt": { "$gte": `${startDate}`, "$lte": `${endDate}` } };
              where.push(obj);*/
             //  searchParams.timezone = "Asia/Kolkata";
-            startDate = moment.tz(searchParams.callstart, searchParams.timezone);
-            endDate = moment.tz(searchParams.callend, searchParams.timezone);
+            startDate = moment.tz(searchParams.callstart, timezone);
+            endDate = moment.tz(searchParams.callend, timezone);
             // const utcDate = inputDate.add(5, 'hours');
             //obj = { "createdAt": { "$gte": `${searchParams.callstart}`, "$lte": `${searchParams.callend}` } };
-            obj = { "createdAt": { "$gte": `${startDate.toDate()}`, "$lte": `${endDate}` } };
+            obj = { "createdAt": { "$gte": startDate.toDate(), "$lte": endDate.toDate() } };
             // obj = { "createdAt": { "$gte": `${startDate.toDate()}`, "$lte": `${endDate}` }, user_uuid: { $ne: "" } };
             where.push(obj);
 
 
-            objWC = { "createdAt": { '$gte': new Date(startDate.toDate()), '$lte': new Date(endDate) } };
+            objWC = { "createdAt": { '$gte': startDate.toDate(), '$lte': endDate.toDate() } };
             // objWC = { "createdAt": { '$gte': new Date(startDate.toDate()), '$lte': new Date(endDate) }, user_uuid: { $ne: "" } };
             // objWC = { "callstart": { '$gte': new Date( startDate.toDate() ), '$lte': new Date( endDate ) }, user_uuid: { $ne: "" } };
             whereClause.push(objWC);
@@ -363,9 +369,11 @@ export class CdrsService {
             if (searchData.length > 0) {
                 count = await this.cDRSArchieveSearchService.cdrsArchiveSearchCount(quarterCollectionName, filteredWhereClause);
                 Logger.debug(count, "Search searchData count ==> ");
+                searchParams.timezone = timezone;
                 return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, searchData, count)
             } else {
                 Logger.error(count, "Search searchData count ==> ");
+                searchParams.timezone = timezone;
                 return this.commonDbFn.sendResponseWithCount(HttpStatus.NOT_FOUND, searchData, count)
             }
         }
@@ -500,9 +508,11 @@ export class CdrsService {
 
             count = result.length;  // ✅ Total filtered count
             const paginatedResult = result.slice(skip, skip + perPage);
+            searchParams.timezone = timezone;
             return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, paginatedResult, count)
         } else {
             Logger.error(count, "Search result count");
+            searchParams.timezone = timezone;
             return this.commonDbFn.sendResponseWithCount(HttpStatus.NOT_FOUND, result, count)
         }
     }

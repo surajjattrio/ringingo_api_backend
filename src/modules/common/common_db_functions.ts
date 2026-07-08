@@ -216,7 +216,7 @@ export class CommonDBFunctions {
         let tablename = searchParams.tableName;
 
         //Check Role type
-        let { role, tenant_uuid, uuid, assigned_manager_role, module } = searchParams;
+        let { role, tenant_uuid, uuid, assigned_manager_role, module, timezone } = searchParams;
         if (role == "tenant") {
             where.push({ tenant_uuid: tenant_uuid });
         } else if (role == "agent") {
@@ -235,6 +235,14 @@ export class CommonDBFunctions {
         delete searchParams.domain;
         delete searchParams.uuid;
         delete searchParams.tableName;
+        delete searchParams.timezone;
+        delete searchParams.concurrent_calls;
+        delete searchParams.manager_uuid;
+        delete searchParams.assigned_manager_role;
+        delete searchParams.module;
+        delete searchParams.parent_uuid;
+        delete searchParams.page;
+        delete searchParams.limit;
         // }
 
         var objectKeys = Object.keys(searchParams);
@@ -328,6 +336,7 @@ export class CommonDBFunctions {
             }
         }
         // const count = await collection_name.find({ $and: where }).count().exec();
+        searchParams.timezone = timezone;
         if (result.length > 0) {
             count = await collection_name.find({ $and: where }).count().exec();
             Logger.debug(count, "Search result count");
