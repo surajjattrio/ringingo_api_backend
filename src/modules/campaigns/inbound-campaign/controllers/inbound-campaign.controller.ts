@@ -248,7 +248,8 @@ export class InboundCampaignController {
                 result = this.inbound_campaign.addAgentInQueueAndTier(inboundCallQueueDto, agentState, feature);
                 break;
             case "submit":
-                if (pause) {
+                if (pause === 'true' || (pause as any) === true) {
+                    agentState = "Idle";
                     result = this.inbound_campaign.addAgentInQueueAndTier(inboundCallQueueDto, agentState, feature);
                 } else {
                     agentState = "Waiting";

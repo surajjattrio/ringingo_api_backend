@@ -759,9 +759,20 @@ export class CommonFunctions {
                 // SUBMIT (Pause/Resume)
                 // ================================
                 case "submit": {
-                    arrCommand = [
-                        `callcenter_config agent set state ${agentId} ${agentState}`
-                    ];
+                    // arrCommand = [
+                    //     `callcenter_config agent set state ${agentId} ${agentState}`
+                    // ];
+                    if (agentState === "Waiting") {
+                        arrCommand = [
+                            `callcenter_config agent set status ${agentId} Available`,
+                            `callcenter_config agent set state ${agentId} Waiting`
+                        ];
+                    } else {
+                        arrCommand = [
+                            `callcenter_config agent set status ${agentId} Break`,
+                            `callcenter_config agent set state ${agentId} Idle`
+                        ];
+                    }
                     break;
                 }
 
