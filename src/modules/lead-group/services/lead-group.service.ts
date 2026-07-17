@@ -264,7 +264,7 @@ export class LeadGroupService {
             // let populateFields = [{ path: "user", select: "username" }, { path: "disposition", select: 'name -_id' },
             // { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }
             // ];
-            let populateFields = [ { path: "user", select: "username" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "disposition", select: 'name -_id' },
+            let populateFields = [ { path: "user", select: "username" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "disposition", select: 'name -_id' },
             { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }
             ];
 
@@ -272,6 +272,17 @@ export class LeadGroupService {
                 for ( i = 0; i < loopCounter; i++ ) {
                     skip = i * limit;
                     result = await this.lead_management.find( { lead_group_uuid }, { call_count: 1, lead_status: 1, user_uuid: 1, createdAt: 1, lead_management_uuid: 1, first_name: 1, last_name: 1, phone_code: 1, phone_number: 1, _id: 0 } ).populate( populateFields ).limit( limit ).skip( skip ).lean().exec();
+
+                    result = result.map((item: any) => {
+                        if ((!item.campaign_details || item.campaign_details.length === 0)) {
+                            if (item.blended_campaign_details && item.blended_campaign_details.length > 0) {
+                                item.campaign_details = item.blended_campaign_details;
+                            } else if (item.inbound_campaign_details && item.inbound_campaign_details.length > 0) {
+                                item.campaign_details = item.inbound_campaign_details;
+                            }
+                        }
+                        return item;
+                    });
 
                     this.addDataToCsv( filePath, result, name, timezone );
                 }

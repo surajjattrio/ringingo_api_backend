@@ -19,6 +19,7 @@ import { tenantSchema, TenantSchema } from '../tenant/schema/tenant.schema';
 import { OutboundCampaignSchema, outboundCampaignSchema } from '../campaigns/outbound-campaign/schema/outbound-campaign.schema';
 import { CustomFieldSchema, customfieldschema } from '../custom-field/schema/custom-field-schema';
 import { BlendedCampaignSchema, blendedCampaignSchema } from '../campaigns/blended-campaign/schema/blended-campaign.schema';
+import { InboundCampaignSchema, inboundCampaignSchema } from '../campaigns/inbound-campaign/schema/inbound-campaign.schema';
 import { WhatsappmessageSchema, whatsappmessageSchema } from '../whatsapp-message/schema/whatsappmessage.schema';
 
 @Module({
@@ -41,6 +42,7 @@ import { WhatsappmessageSchema, whatsappmessageSchema } from '../whatsapp-messag
             { name: TenantSchema.name, schema: tenantSchema },
             { name: CustomFieldSchema.name, schema: customfieldschema },
             { name: BlendedCampaignSchema.name, schema: blendedCampaignSchema },
+            { name: InboundCampaignSchema.name, schema: inboundCampaignSchema },
             { name: WhatsappmessageSchema.name, schema: whatsappmessageSchema }
         ]),
         forwardRef(() => OutboundCampaignModule),

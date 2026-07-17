@@ -287,7 +287,7 @@ export class LeadManagementService {
 
     async findAll(queryParams) {
         let searchFields = ["first_name", "last_name", "address", "custom_phone_number"];
-        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
+        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
         console.log("queryParams leads", queryParams);
 
         queryParams.tableName = 'lead_management_unique'
@@ -502,7 +502,7 @@ export class LeadManagementService {
         let i, objectKeys, objectValues, len, filedName, filedValue, searchFlag, where: any = [], key, obj, result, count = 0;
 
         //Check Role type
-        let { role, tenant_uuid, uuid } = searchParams;
+        let { role, tenant_uuid, uuid, timezone } = searchParams;
         if (role == "tenant" || role == "manager") {
             where.push({ tenant_uuid: tenant_uuid });
         } else if (role == "agent") {
@@ -529,13 +529,22 @@ export class LeadManagementService {
         delete searchParams.date_filter_type;
         delete searchParams.start_date;
         delete searchParams.end_date;
-        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
+        delete searchParams.timezone;
+        delete searchParams.concurrent_calls;
+        delete searchParams.manager_uuid;
+        delete searchParams.assigned_manager_role;
+        delete searchParams.module;
+        delete searchParams.parent_uuid;
+        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
 
         //Pagination
         const perPage = Number(searchParams.limit) || 10;
         const currentPage = Number(searchParams.page) || 1;
         const skip = perPage * (currentPage - 1);
         //End
+
+        delete searchParams.page;
+        delete searchParams.limit;
 
 
         objectKeys = Object.keys(searchParams);
@@ -625,19 +634,21 @@ export class LeadManagementService {
         result?.map((data) => {
             if (data.cdrs_details != '' && data.cdrs_details != undefined) {
                 if (data.cdrs_details[0].createdAt != undefined) {
-                    data.cdrs_details[0].converted_date = moment.tz(data.cdrs_details[0].createdAt, searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
+                    data.cdrs_details[0].converted_date = moment.tz(data.cdrs_details[0].createdAt, timezone).format("YYYY-MM-DD HH:mm:ss");
                 }
             }
-            data.converted_date = moment.tz(data.createdAt, searchParams.timezone).format("YYYY-MM-DD HH:mm:ss");
+            data.converted_date = moment.tz(data.createdAt, timezone).format("YYYY-MM-DD HH:mm:ss");
 
 
         })
         if (result.length > 0) {
             count = await this.lead_management.find({ $and: where }).count().exec();
             Logger.debug(count, "Search result count");
+            searchParams.timezone = timezone;
             return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, result, count)
         } else {
             Logger.error(count, "Search result count");
+            searchParams.timezone = timezone;
             return this.commonDbFn.sendResponseWithCount(HttpStatus.NOT_FOUND, result, count)
         }
     }
@@ -1638,7 +1649,7 @@ export class LeadManagementService {
         let finalArray = [], obj;
 
         //Fetch lead details
-        let populateFileds = [{ path: "user", select: "username fullname -_id -uuid" }, { path: "tenant", select: "tenant_name -_id -uuid" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: "name" }, { path: "campaign_details", select: 'name -_id -uuid' }];
+        let populateFileds = [{ path: "user", select: "username fullname -_id -uuid" }, { path: "tenant", select: "tenant_name -_id -uuid" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: "name" }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }];
         let populateDisposition = [{ path: "user", select: "username fullname -_id" }, { path: "disposition_details", select: "name -_id" }];
         let leadData = await this.lead_management.find({ lead_management_uuid, tenant_uuid }).populate(populateFileds).exec();
         obj = { "lead_information": leadData };
@@ -1802,7 +1813,7 @@ export class LeadManagementService {
 
     fetchUnallocatedLeads(queryParams) {
         let searchFields = ["first_name", "last_name", "address", "custom_phone_number"];
-        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
+        let populateFields = [{ path: "country", select: 'country nicename -_id -uuid' }, { path: "user", select: 'username fullname -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "disposition_1", select: 'name -_id -disposition_uuid' }, { path: "disposition_2", select: 'name -_id -disposition_uuid' }, { path: "lead_group", select: 'name -_id -uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "pbx_lead_status", select: 'name -_id -pbx_lead_status_uuid' }, { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }];
         console.log("queryParams leads", queryParams);
 
         queryParams.tableName = 'unallocated_leads'

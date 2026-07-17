@@ -6,6 +6,8 @@ import { DispositionSchema } from "src/modules/disposition/schema/disposition.sc
 import { LeadGroupSchema } from "src/modules/lead-group/schema/lead-group.schema";
 import { UserSchema } from "src/modules/user/schema/user.schema";
 import { OutboundCampaignSchema } from "src/modules/campaigns/outbound-campaign/schema/outbound-campaign.schema";
+import { BlendedCampaignSchema } from "src/modules/campaigns/blended-campaign/schema/blended-campaign.schema";
+import { InboundCampaignSchema } from "src/modules/campaigns/inbound-campaign/schema/inbound-campaign.schema";
 import { TenantSchema } from "src/modules/tenant/schema/tenant.schema";
 import { PbxLeadStatusSchema } from "src/modules/pbx-lead-status/schema/pbx-lead-status.schema";
 
@@ -18,7 +20,38 @@ let custom_field_list = [
 
 export type LeadManagementDocument = LeadManagementSchema & Document;
 
-@Schema( { collection: "lead_management", timestamps: true, toJSON: { virtuals: true, getters: true }, toObject: { virtuals: true, getters: true } } )
+@Schema({
+    collection: "lead_management",
+    timestamps: true,
+    toJSON: {
+        virtuals: true,
+        getters: true,
+        transform: function (doc, ret) {
+            if ((!ret.campaign_details || ret.campaign_details.length === 0)) {
+                if (ret.blended_campaign_details && ret.blended_campaign_details.length > 0) {
+                    ret.campaign_details = ret.blended_campaign_details;
+                } else if (ret.inbound_campaign_details && ret.inbound_campaign_details.length > 0) {
+                    ret.campaign_details = ret.inbound_campaign_details;
+                }
+            }
+            return ret;
+        }
+    },
+    toObject: {
+        virtuals: true,
+        getters: true,
+        transform: function (doc, ret) {
+            if ((!ret.campaign_details || ret.campaign_details.length === 0)) {
+                if (ret.blended_campaign_details && ret.blended_campaign_details.length > 0) {
+                    ret.campaign_details = ret.blended_campaign_details;
+                } else if (ret.inbound_campaign_details && ret.inbound_campaign_details.length > 0) {
+                    ret.campaign_details = ret.inbound_campaign_details;
+                }
+            }
+            return ret;
+        }
+    },
+})
 
 export class LeadManagementSchema {
 
@@ -164,10 +197,23 @@ leadManagementSchema.virtual( 'lead_group', {
 } );
 leadManagementSchema.virtual( 'campaign_details', {
     ref: OutboundCampaignSchema.name,
-    localField: 'campaign_uuid',
-    foreignField: 'uuid',
-} );
-leadManagementSchema.virtual( 'tenant', {
+    localField: "campaign_uuid",
+    foreignField: "uuid",
+});
+
+leadManagementSchema.virtual("blended_campaign_details", {
+    ref: BlendedCampaignSchema.name,
+    localField: "campaign_uuid",
+    foreignField: "uuid",
+});
+
+leadManagementSchema.virtual("inbound_campaign_details", {
+    ref: InboundCampaignSchema.name,
+    localField: "campaign_uuid",
+    foreignField: "uuid",
+});
+
+leadManagementSchema.virtual("tenant", {
     ref: TenantSchema.name,
     localField: 'tenant_uuid',
     foreignField: 'uuid',
