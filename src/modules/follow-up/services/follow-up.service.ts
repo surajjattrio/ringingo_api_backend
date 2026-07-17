@@ -90,11 +90,19 @@ export class FollowUpService {
     let populateFields = [{ path: "lead_details", select: "first_name last_name phone_number -_id" }];
         return this.commonDbFn.findAllWithPagination(this.follow_up, queryParams, searchFields,populateFields);*/
         let { uuid, today } = queryParams;
+        let populateFields = [
+            {
+                path: "lead_details",
+                select: "first_name last_name phone_number custom_phone_number campaign_uuid -_id",
+                populate: [
+                    { path: "campaign_details", select: "name -_id" },
+                    { path: "blended_campaign_details", select: "name -_id" },
+                    { path: "inbound_campaign_details", select: "name -_id" }
+                ]
+            },
+            { path: "user", select: 'username fullname' }
+        ];
         if ( today == 'true' ) {
-            let populateFields = [
-                { path: "lead_details", select: "first_name last_name phone_number custom_phone_number -_id" },
-                { path: "user", select: 'username fullname' }
-            ];
             let currentDate = new Date();
 
             //let currentDate = moment.tz(queryParams.date, queryParams.timezone); // Use moment-timezone for consistent date handling
@@ -118,7 +126,6 @@ export class FollowUpService {
             // Returning the response along with the status code
             return this.commonDbFn.sendResponseWithMessage( statusCode, response );
         }
-        let populateFields = [ { path: "lead_details", select: "first_name last_name phone_number custom_phone_number -_id" }, { path: "user", select: 'username fullname' } ];
         if ( queryParams.date != undefined && queryParams.date != "" ) {
             // let response = await this.follow_up.find({ reminder_date_time: { $gte: `${queryParams.date}` } , user_uuid : uuid }).populate(populateFields).exec();
             // console.log( queryParams );
@@ -234,7 +241,19 @@ export class FollowUpService {
             logErrorMsg: `Follow up not found by uuid : ${follow_up_uuid} \n`,
             logSuccessMsg: `Follow up success fetched by uuid : ${follow_up_uuid} \n`
         }
-        const result = await this.follow_up.findOne( { follow_up_uuid } ).exec();
+        let populateFields = [
+            {
+                path: "lead_details",
+                select: "first_name last_name phone_number custom_phone_number campaign_uuid -_id",
+                populate: [
+                    { path: "campaign_details", select: "name -_id" },
+                    { path: "blended_campaign_details", select: "name -_id" },
+                    { path: "inbound_campaign_details", select: "name -_id" }
+                ]
+            },
+            { path: "user", select: 'username fullname' }
+        ];
+        const result = await this.follow_up.findOne( { follow_up_uuid } ).populate(populateFields).exec();
         const res = logMessages;
         if ( result == null ) {
             Logger.error( res.logErrorMsg, getMethod );
@@ -309,7 +328,18 @@ export class FollowUpService {
     */
 
     async advancedSearch ( searchParams ) {
-        let populateFields = [ { path: "lead_details", select: "first_name last_name phone_number -_id" }, { path: "user", select: 'username fullname' } ];
+        let populateFields = [
+            {
+                path: "lead_details",
+                select: "first_name last_name phone_number custom_phone_number campaign_uuid -_id",
+                populate: [
+                    { path: "campaign_details", select: "name -_id" },
+                    { path: "blended_campaign_details", select: "name -_id" },
+                    { path: "inbound_campaign_details", select: "name -_id" }
+                ]
+            },
+            { path: "user", select: 'username fullname' }
+        ];
         return this.commonDbFn.advancedSearch( this.follow_up, searchParams, populateFields );
     }
 
