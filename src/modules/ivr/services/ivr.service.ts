@@ -349,7 +349,7 @@ export class IvrService {
       }
 
       case "8":
-        xmlElem = "transfer " + routing_options + " XML ${domain_name}";
+        xmlElem = "bridge /sofia/gateway/" + routing_options.replace("|","/");
         break;
 
       case "9":
