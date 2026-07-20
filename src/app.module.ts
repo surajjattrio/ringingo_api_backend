@@ -101,6 +101,7 @@ import { GoogleDriveModule } from "./modules/google-drive/google-drive.module";
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { ActivityLogInterceptor } from "./interceptor/activity-log.interceptor";
 import { WebhookModule } from "./modules/webhook/webhook.module";
+import { CdrWebhookModule } from "./modules/cdr-webhook/cdr-webhook.module";
 import { VoiceAlertModule } from "./modules/voice-alert/voice-alert.module";
 import { RealtimeDashboardModule } from "./modules/realtime-dashboard/realtime-dashboard.module";
 import { InboundCallDebugModule } from "./modules/inbound-call-debug/inbound-call-debug.module";
@@ -206,6 +207,7 @@ import { MessageConfigurationModule } from "./modules/message-configuration/mess
     RequestSchedulerModule,
     GoogleDriveModule,
     WebhookModule,
+    CdrWebhookModule,
     VoiceAlertModule,
     RealtimeDashboardModule,
     InboundCallDebugModule,
