@@ -167,18 +167,38 @@ export class GoogleSheetService {
             };
 
             const token = row[2];
+            const phone_number = row[13];
 
             // Check for duplicates
-            if (token) {
-                // const [leadExists, sheetExists] = await Promise.all([
-                //     this.lead_management.findOne({ token }).lean(),
-                //     this.googleSheetModel.findOne({ token }).lean(),
-                // ]);
+            // if (token) {
+            //     // const [leadExists, sheetExists] = await Promise.all([
+            //     //     this.lead_management.findOne({ token }).lean(),
+            //     //     this.googleSheetModel.findOne({ token }).lean(),
+            //     // ]);
 
-                const leadExists = await this.lead_management.findOne({ token }).lean();
+            //     // if (leadExists || sheetExists) {
+            //     //     console.log('[GoogleSheetService] Skipping duplicate records:', token);
+            //     //     return false;
+            //     // }
+
+            //     const leadExists = await this.lead_management.findOne({ token }).lean();
+
+            //     if (leadExists) {
+            //         console.log('[GoogleSheetService] Skipping duplicate records:', token);
+            //         return false;
+            //     }
+            // }
+
+            if (phone_number) {
+                const leadExists = await this.lead_management.findOne({ 
+                    lead_group_uuid: leadGroupUuid,
+                    campaign_uuid: campaignUuid,
+                    tenant_uuid: tenantUuid,
+                    phone_number
+                }).lean();
 
                 if (leadExists) {
-                    console.log('[GoogleSheetService] Skipping duplicate records:', token);
+                    console.log(`[GoogleSheetService] Duplicate skipped — lead_group_uuid=${leadGroupUuid}, phone_number=${phone_number} already exists in lead_management.`);
                     return false;
                 }
             }
@@ -266,7 +286,7 @@ export class GoogleSheetService {
                 token,
             };
 
-            await this.googleSheetModel.create(payload);
+            // await this.googleSheetModel.create(payload);
             await this.leadManagementService.createNewLeadWithoutReset(payload);
 
             return true;
