@@ -23,7 +23,7 @@ export class GoogleSheetCron {
 
         const results = await Promise.allSettled([
             this.service.callGoogleSheetCron(),
-            this.sampann_service.callGoogleSheetCron(),
+            // this.sampann_service.callGoogleSheetCron(),
         ]);
 
         results.forEach((result, index) => {
