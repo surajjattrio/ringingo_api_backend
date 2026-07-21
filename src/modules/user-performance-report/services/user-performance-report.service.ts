@@ -436,7 +436,32 @@ export class UserPerformanceReportService {
               username: { $first: "$user_info.username" },
               fullname: { $first: "$user_info.fullname" },
               totalCalls: { $sum: 1 },
-              successfulCalls: { $sum: { $cond: [{ $in: ["$disposition", ["ANSWERED", "NORMAL_CLEARING"]] }, 1, 0] } },
+              // successfulCalls: { $sum: { $cond: [{ $in: ["$disposition", ["ANSWERED", "NORMAL_CLEARING"]] }, 1, 0] } },
+              successfulCalls: {
+                $sum: {
+                  $cond: {
+                    if: { $eq: [{ $toLower: "$direction" }, "inbound"] },
+                    then: {
+                      $cond: [
+                        { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] },
+                        1, 0
+                      ]
+                    },
+                    else: {
+                      $cond: {
+                        if: { $eq: [{ $toLower: "$direction" }, "outbound"] },
+                        then: {
+                          $cond: [
+                            { $gt: [{ $convert: { input: "$billsecond", to: "double", onError: 0, onNull: 0 } }, 0] },
+                            1, 0
+                          ]
+                        },
+                        else: 0
+                      }
+                    }
+                  }
+                }
+              },
               totalBillseconds: { $sum: "$billsecond" },
               totalInboundCalls: { $sum: { $cond: { if: { $eq: [{ $toLower: "$direction" }, "inbound"] }, then: 1, else: 0 } } },
               totalOutboundCalls: { $sum: { $cond: { if: { $eq: [{ $toLower: "$direction" }, "outbound"] }, then: 1, else: 0 } } },
