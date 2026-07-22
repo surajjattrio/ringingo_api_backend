@@ -1070,6 +1070,17 @@ export class AgentCallCenterService {
 
             let trunkName = await this.trunk.findOne({uuid : trunkDetails.trunk_uuid},{name : 1 , _id : 0}).exec();
 
+            // Trunk failover: resolve Failover Trunk 1/2 gateway names (if configured on the matched outgoing rule)
+            let failoverTrunk1Name = trunkDetails?.matchedRule?.failover_trunk_1_uuid ? await this.trunk.findOne({uuid : trunkDetails.matchedRule.failover_trunk_1_uuid},{name : 1 , _id : 0}).exec() : null;
+            let failoverTrunk2Name = trunkDetails?.matchedRule?.failover_trunk_2_uuid ? await this.trunk.findOne({uuid : trunkDetails.matchedRule.failover_trunk_2_uuid},{name : 1 , _id : 0}).exec() : null;
+            let trunkParam = {
+                trunkName: trunkName?.name,
+                secondaryTrunk: failoverTrunk1Name?.name || "",
+                tertiaryTrunk: failoverTrunk2Name?.name || "",
+                failover_call_id_1: trunkDetails?.matchedRule?.failover_trunk_1_call_id || "",
+                failover_call_id_2: trunkDetails?.matchedRule?.failover_trunk_2_call_id || ""
+            };
+
             //update lead status to sent
                     let leadData = await this.leads_in_queue.updateOne({ lead_management_uuid: allLeads[i]?.lead_details[0]?.lead_management_uuid, campaign_uuid: getAgentDetails?.campaign_uuid, tenant_uuid }, { lead_sent: "0" }).exec();
                     if (leadData.matchedCount == 0 && leadData.modifiedCount == 0) {
@@ -1344,7 +1355,18 @@ export class AgentCallCenterService {
 
                 Logger.verbose(JSON.stringify(leadDetails), "Started originating call to ==> ");
 
-                let generateUUIDForCalling: any = await this.commonFn.getUUIDForCall(campaign_uuid, tenant_uuid, uuid, leadDetails, caller_id, trunkName?.name, campaignData?.timeout, username, campaignData?.number_masking, campaign_mode, campaignData?.answering_machine_detection, "", loggedInEntityUUID, domain, account_code, campaign_flag, "");
+		        // Trunk failover: resolve Failover Trunk 1/2 gateway names + their DIDs (if configured on the matched outgoing rule)
+                const failoverTrunk1Name = trunkDetails?.matchedRule?.failover_trunk_1_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_1_uuid }, { name: 1, _id: 0 }).exec() : null;
+                const failoverTrunk2Name = trunkDetails?.matchedRule?.failover_trunk_2_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_2_uuid }, { name: 1, _id: 0 }).exec() : null;
+                const trunkParam = {
+                    trunkName: trunkName?.name,
+                    secondaryTrunk: failoverTrunk1Name?.name || "",
+                    tertiaryTrunk: failoverTrunk2Name?.name || "",
+                    failover_call_id_1: trunkDetails?.matchedRule?.failover_trunk_1_call_id || "",
+                    failover_call_id_2: trunkDetails?.matchedRule?.failover_trunk_2_call_id || ""
+                };
+
+                let generateUUIDForCalling: any = await this.commonFn.getUUIDForCall(campaign_uuid, tenant_uuid, uuid, leadDetails, caller_id, trunkParam, campaignData?.timeout, username, campaignData?.number_masking, campaign_mode, campaignData?.answering_machine_detection, "", loggedInEntityUUID, domain, account_code, campaign_flag, "");
 
                 //Update lead status in lead management to auto_originate
                 let leadManagementUpdate = await this.lead_management.updateOne({ lead_management_uuid: allLeads[i]?.lead_management_uuid }, { lead_status: autoOriginateDisposition }, { upsert: true }).exec();
@@ -1499,7 +1521,7 @@ export class AgentCallCenterService {
                 Logger.debug(`Agent status updated with uuid : ${agent_uuid} and campaign ${campaign_uuid}`);
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Agent status updated successfully");
             }
-        } catch (err) {
+        } catch (err: any) {
             Logger.debug("Unable to update agent status", err.message);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, "Unable to update agent status");
         }
@@ -1665,7 +1687,7 @@ return uniqueIds;
             if (prepend != "" && strip != undefined) {
                 lead_number = prepend.concat(lead_number);
             }
-            return { lead_number, trunk_uuid: trunkDetails?.trunk_uuid?.trunk_uuid }
+	        return { lead_number, trunk_uuid: trunkDetails?.trunk_uuid?.trunk_uuid, matchedRule: trunkDetails?.trunk_uuid }
         }
     }
 
@@ -1691,7 +1713,7 @@ return uniqueIds;
                 Logger.debug(`Agent status updated with uuid : ${agent_uuid} and campaign ${campaign_uuid}`);
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Agent status updated successfully");
             }
-        } catch (err) {
+        } catch (err: any) {
             Logger.error("Unable to update agent status", err.message);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Unable to find agent with uuid : ${agent_uuid} and campaign ${campaign_uuid}`);
         }

@@ -63,7 +63,7 @@ export class VoiceBroadcastService implements OnModuleInit {
             } else {
                 Logger.verbose( `Not found any missed cron job` );
             }
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error while module init`, error.message );
         }
     }
@@ -376,7 +376,7 @@ export class VoiceBroadcastService implements OnModuleInit {
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, `Unable to reset lead` );
             }
 
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error in fetching lead ==== Catch block \n`, error.message );
             return this.commonDbFn.sendResponseWithMessage( HttpStatus.BAD_REQUEST, `Error in fetching lead` );
         }
@@ -519,7 +519,7 @@ export class VoiceBroadcastService implements OnModuleInit {
             }*/
 
             this.updateCronStatus( start_date, end_date, voice_broadcast_uuid, action, tenant_uuid, channel, caller_id, rules, amd, caller_id_type,skip );
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error in catch block \n`, error.message );
         }
     }
@@ -554,7 +554,7 @@ export class VoiceBroadcastService implements OnModuleInit {
                 }
                 Logger.warn( `Stopped Broadcast List :${JSON.stringify( this.stoppedBroadcastList )} \n` );
             }
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error in catch block === updateCronStatus()`, error.message );
         }
     }
@@ -586,7 +586,7 @@ export class VoiceBroadcastService implements OnModuleInit {
 
             Logger.verbose( `Voice broadcasting started successfully...... : BroadcastUUID : ${voiceBroadcastUUID} \n` );
             this.startSendingCalls( channel, delayValue, endDate, tenant_uuid, voiceBroadcastUUID, caller_id, uuid, outgoingRulesDetails, amd, caller_id_type,skip );
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error in catch block`, error.message );
         }
     }
@@ -686,12 +686,20 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                             phone_number: leadNumber,
                             lead_management_uuid: this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ].lead_details[ 0 ].lead_management_uuid
                         }
-                        this.commonFn.getUUIDForCall( voiceBroadcastUUID, tenant_uuid, "", leadDetails, new_caller_id, trunkDetails.trunkName, "30", "", "1", "", amd, "broadcast", "", tenant_domain, account_code ,"",skip);
+                        // Trunk failover: pass primary + Failover Trunk 1/2 (name + DID) so a broken primary trunk rolls over per §4.2/§4.5 of TRUNK-FAILOVER-DESIGN.md
+                        let broadcastTrunkParam = {
+                            trunkName: trunkDetails.trunkName,
+                            secondaryTrunk: trunkDetails.failoverTrunk1Name || "",
+                            tertiaryTrunk: trunkDetails.failoverTrunk2Name || "",
+                            failover_call_id_1: trunkDetails.failoverCallId1 || "",
+                            failover_call_id_2: trunkDetails.failoverCallId2 || ""
+                        };
+                        this.commonFn.getUUIDForCall( voiceBroadcastUUID, tenant_uuid, "", leadDetails, new_caller_id, broadcastTrunkParam, "30", "", "1", "", amd, "broadcast", "", tenant_domain, account_code ,"",skip);
 
                         //console.log(`Sent call ${i} broadcast : ${voiceBroadcastUUID} LEAD : ${this.allBroadcastDatas[voiceBroadcastUUID][0].lead_details[0]}`);
 
 
-                    } catch ( error ) {
+                    } catch ( error: any ) {
                         Logger.error( `Error in catch block when sending calls`, error.message );
                     }
                     deleteLeads.push( this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ].uuid );
@@ -756,7 +764,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
 
 
             }
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Error in catch block ==== startSendingCalls()`, error.message );
         }
     }
@@ -862,6 +870,10 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                 }
             }
             trunkDetails.trunkName = trunkUUID.trunkName;
+            trunkDetails.failoverTrunk1Name = trunkUUID.failoverTrunk1Name;
+            trunkDetails.failoverTrunk2Name = trunkUUID.failoverTrunk2Name;
+            trunkDetails.failoverCallId1 = trunkUUID.failoverCallId1;
+            trunkDetails.failoverCallId2 = trunkUUID.failoverCallId2;
 
             //Check for strip & prepend
             strip = trunkUUID?.strip;
@@ -876,7 +888,14 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
             if ( prepend != "" ) {
                 lead_number = prepend.concat( lead_number );
             }
-            return { lead_number, trunkName: trunkDetails.trunkName }
+            return {
+                lead_number,
+                trunkName: trunkDetails.trunkName,
+                failoverTrunk1Name: trunkDetails.failoverTrunk1Name,
+                failoverTrunk2Name: trunkDetails.failoverTrunk2Name,
+                failoverCallId1: trunkDetails.failoverCallId1,
+                failoverCallId2: trunkDetails.failoverCallId2
+            }
         }
     }
 
@@ -892,6 +911,9 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
             allData = rules?.map( async ( data ) => {
 
                 trunkName = await this.trunk.findOne( { uuid: data.trunk_uuid }, { name: 1, _id: 0 } ).exec();
+                // Trunk failover: resolve Failover Trunk 1/2 gateway names (if configured on the rule)
+                let failoverTrunk1 = data.failover_trunk_1_uuid ? await this.trunk.findOne( { uuid: data.failover_trunk_1_uuid }, { name: 1, _id: 0 } ).exec() : null;
+                let failoverTrunk2 = data.failover_trunk_2_uuid ? await this.trunk.findOne( { uuid: data.failover_trunk_2_uuid }, { name: 1, _id: 0 } ).exec() : null;
                 obj = {
                     length: data.length,
                     prefix: data.prefix,
@@ -899,8 +921,12 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                     prepend: data.prepend,
                     trunk_uuid: data.trunk_uuid,
                     trunkName: trunkName?.name,
-                    failover_trunk_1_uuid: data.failover_trunk_2_uuid,
-                    failover_trunk_2_uuid: data.failover_trunk_2_uuid
+                    failover_trunk_1_uuid: data.failover_trunk_1_uuid,
+                    failover_trunk_2_uuid: data.failover_trunk_2_uuid,
+                    failoverTrunk1Name: failoverTrunk1?.name,
+                    failoverTrunk2Name: failoverTrunk2?.name,
+                    failoverCallId1: data.failover_trunk_1_call_id,
+                    failoverCallId2: data.failover_trunk_2_call_id
                 }
                 rulesArr.push( obj );
             } );
@@ -1038,7 +1064,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
             } else {
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, "Unable to delete lead group" );
             }
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( "Unable to delete lead group", error.message );
             return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, "Unable to delete lead group" );
         }

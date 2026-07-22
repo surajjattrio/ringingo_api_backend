@@ -7,6 +7,8 @@ export const outgoingRules = [
         "trunk_uuid": "",
         "call_id_value": "",
         "failover_trunk_1_uuid": "",
+        "failover_trunk_1_call_id": "",
         "failover_trunk_2_uuid": "",
+        "failover_trunk_2_call_id": "",
     }
 ]

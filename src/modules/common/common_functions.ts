@@ -443,7 +443,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -505,7 +505,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -532,13 +532,47 @@ export class CommonFunctions {
             }else{
               Logger.verbose("Using same connection of FS");
             }*/
+
+            // Resolve primary/failover trunk names + failover DIDs. `trunk` is either a plain gateway-name
+            // string (no failover configured) or an object: { trunkName, secondaryTrunk, tertiaryTrunk, failover_call_id_1, failover_call_id_2 }.
+            // Primary leg's Caller ID is always the existing `caller_id` param — unchanged. Only the failover legs
+            // (if configured) get their own trunk's DID, since failover trunks are usually a different operator.
+            let primaryTrunk = trunk;
+            let secondaryTrunk = "";
+            let tertiaryTrunk = "";
+            let secondaryCallId = caller_id;
+            let tertiaryCallId = caller_id;
+            try {
+                if (trunk && typeof trunk === "object") {
+                    primaryTrunk = trunk.trunkName || trunk.primaryTrunk || trunk.name || primaryTrunk;
+                    secondaryTrunk = trunk.secondaryTrunk || "";
+                    tertiaryTrunk = trunk.tertiaryTrunk || "";
+                    secondaryCallId = trunk.failover_call_id_1 || caller_id;
+                    tertiaryCallId = trunk.failover_call_id_2 || caller_id;
+                }
+            } catch (e: any) {
+                Logger.warn('Error parsing trunk/failover params, falling back to primary trunk only', e?.message || e);
+            }
+
+            // Build 1-3 sequential ("|" = try next leg only if the previous one fails) dial-string legs.
+            // A leg is appended only if its trunk is actually configured AND different from the trunk(s)
+            // already queued — so a rule with no failover set still dials the primary exactly once.
+            let dialLegs = [ `[origination_caller_id_number=${caller_id},effective_caller_id_number=${caller_id},effective_caller_id_name=${caller_id}]sofia/gateway/${primaryTrunk}/${lead_details?.phone_number}` ];
+            if ( secondaryTrunk && secondaryTrunk !== primaryTrunk ) {
+                dialLegs.push( `[origination_caller_id_number=${secondaryCallId},effective_caller_id_number=${secondaryCallId},effective_caller_id_name=${secondaryCallId}]sofia/gateway/${secondaryTrunk}/${lead_details?.phone_number}` );
+            }
+            if ( tertiaryTrunk && tertiaryTrunk !== primaryTrunk && tertiaryTrunk !== secondaryTrunk ) {
+                dialLegs.push( `[origination_caller_id_number=${tertiaryCallId},effective_caller_id_number=${tertiaryCallId},effective_caller_id_name=${tertiaryCallId}]sofia/gateway/${tertiaryTrunk}/${lead_details?.phone_number}` );
+            }
+            let dialString = dialLegs.join( "|" );
+
             return new Promise( function ( resolve, reject ) {
                 //let conn = new esl.Connection(process.env.FS_HOST, process.env.FS_PORT, process.env.FS_PASSWORD, async function () {
 
                 //Get uuid from bgapi
                 //    let bgApiUUID = await self.generateBgapiUUID(conn);
                 // origination_uuid= = bgApiUUID
-                let command = `bgapi originate <^^|sip_h_P-amd_status=${amd_status}|sip_h_P-voicebroadcast=${broadcastStatus}|sip_h_P-skip_flag=${skip_flag}|sip_h_P-manager_uuid=${loggedInEntityUUID}|sip_h_P-call_start=${currentDateTime}|sip_h_P-predictive_campaign=${campaign_mode}|sip_h_P-tenant_domain=${domain}|leg_timeout=${timeout}|sip_h_P-auto_campaign=true|sip_h_P-campaign_uuid=${campaign_uuid}|sip_h_P-campaign_flag=${campaign_flag}|sip_h_P-tenant_uuid=${tenant_uuid}|sip_h_P-account_code=${account_code}|sip_h_P-lead_uuid=${lead_details?.lead_management_uuid}|sip_h_P-lead_name=${firstName}--${lastName}|sip_h_P-username=${extension}|sip_h_P-original_number=${lead_details?.original_number}|sip_h_P-number_masking=${number_masking}|presence_data=tenant=${tenant_uuid},lead_management_uuid=${lead_details?.lead_management_uuid}|ignore_early_media=true|sip_h_P-cb_destination=${lead_details?.phone_number}|variable_effective_caller_id_name=${caller_id}|variable_effective_caller_id_number=${caller_id}|origination_caller_id_number=${caller_id}|effective_caller_id_number=${caller_id}|Caller-Destination-Number=${lead_details?.phone_number}|Hunt-Orig-Caller-ID-Number=${caller_id}|Hunt-Callee-ID-Name=${caller_id}>sofia/gateway/${trunk}/${lead_details?.phone_number}  &lua(${process.env.FS_SCRIPT}${scriptName}.lua)`;
+                let command = `bgapi originate <^^|sip_h_P-amd_status=${amd_status}|sip_h_P-voicebroadcast=${broadcastStatus}|sip_h_P-skip_flag=${skip_flag}|sip_h_P-manager_uuid=${loggedInEntityUUID}|sip_h_P-call_start=${currentDateTime}|sip_h_P-predictive_campaign=${campaign_mode}|sip_h_P-tenant_domain=${domain}|leg_timeout=${timeout}|sip_h_P-auto_campaign=true|sip_h_P-campaign_uuid=${campaign_uuid}|sip_h_P-campaign_flag=${campaign_flag}|sip_h_P-tenant_uuid=${tenant_uuid}|sip_h_P-account_code=${account_code}|sip_h_P-lead_uuid=${lead_details?.lead_management_uuid}|sip_h_P-lead_name=${firstName}--${lastName}|sip_h_P-username=${extension}|sip_h_P-original_number=${lead_details?.original_number}|sip_h_P-number_masking=${number_masking}|presence_data=tenant=${tenant_uuid},lead_management_uuid=${lead_details?.lead_management_uuid}|ignore_early_media=true|sip_h_P-cb_destination=${lead_details?.phone_number}|variable_effective_caller_id_name=${caller_id}|variable_effective_caller_id_number=${caller_id}|origination_caller_id_number=${caller_id}|effective_caller_id_number=${caller_id}|Caller-Destination-Number=${lead_details?.phone_number}|Hunt-Orig-Caller-ID-Number=${caller_id}|Hunt-Callee-ID-Name=${caller_id}>${dialString}  &lua(${process.env.FS_SCRIPT}${scriptName}.lua)`;
                 // let command = `bgapi originate {sip_h_P-amd_status=${amd_status},sip_h_P-voicebroadcast=${broadcastStatus},sip_h_P-skip_flag=${skip_flag},sip_h_P-manager_uuid=${loggedInEntityUUID},sip_h_P-call_start=${currentDateTime},sip_h_P-predictive_campaign=${campaign_mode},sip_h_P-tenant_domain=${domain},leg_timeout=${timeout},sip_h_P-auto_campaign=true,sip_h_P-campaign_uuid=${campaign_uuid},sip_h_P-campaign_flag=${campaign_flag},sip_h_P-tenant_uuid=${tenant_uuid},sip_h_P-account_code=${account_code},sip_h_P-lead_uuid=${lead_details?.lead_management_uuid},sip_h_P-lead_name=${firstName}--${lastName},sip_h_P-username=${extension},sip_h_P-original_number=${lead_details?.original_number},sip_h_P-number_masking=${number_masking},ignore_early_media=true,sip_h_P-user_uuid=${uuid},sip_h_P-cb_destination=${lead_details?.phone_number},variable_effective_caller_id_name=${caller_id},variable_effective_caller_id_number=${caller_id},origination_caller_id_number=${caller_id},effective_caller_id_number=${caller_id},Caller-Destination-Number=${lead_details?.phone_number},Hunt-Orig-Caller-ID-Number=${caller_id},Hunt-Callee-ID-Name=${caller_id}}sofia/gateway/${trunk}/${lead_details?.phone_number}  &lua(${process.env.FS_SCRIPT}${scriptName}.lua)`;
                 Logger.verbose( "Originate Command...", command );
                 self.fsConnection.api( command, function ( res ) {
@@ -564,7 +598,7 @@ export class CommonFunctions {
                       console.log('ESL connection closed');
                 });*/
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to generate UUID for call" );
         }
     }
@@ -621,7 +655,7 @@ export class CommonFunctions {
                 //         resolve( res );
                 //     } )
             // } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -922,7 +956,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -944,7 +978,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -960,7 +994,7 @@ export class CommonFunctions {
                     resolve( conn );
                 } )
              } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -1002,7 +1036,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } );
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Unable to kill uuid: ${uuid}`, error.message );
         }
     }
@@ -1139,7 +1173,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } );
-        } catch ( error ) {
+        } catch ( error: any ) {
             Logger.error( `Unable to send DTMF : ${uuid}`, error.message );
         }
     }
@@ -1323,7 +1357,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
@@ -1344,7 +1378,7 @@ export class CommonFunctions {
                     resolve( res );
                 } );
             } )
-        } catch ( err ) {
+        } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );
         }
     }
