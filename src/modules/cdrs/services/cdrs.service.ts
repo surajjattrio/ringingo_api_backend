@@ -467,6 +467,7 @@ export class CdrsService {
                 data.hold_time = this.secondsToHHMMSS(rawHoldTime);
                 data.waiting_time = this.secondsToHHMMSS(rawWaitingTime);
                 data.ringing_time = this.secondsToHHMMSS(rawRingingTime);
+		        data.acw_time = this.secondsToHHMMSS(Number.parseInt(data.acw_time));
 
                 // ✅ Add Actual Talk Time
                 const direction = String(data.direction || "").toLowerCase();
@@ -657,6 +658,7 @@ export class CdrsService {
                     hold_time: this.secondsToHHMMSS(rawHoldTime),
                     waiting_time: this.secondsToHHMMSS(rawWaitingTime),
                     ringing_time: this.secondsToHHMMSS(rawRingingTime),
+		            acw_time: this.secondsToHHMMSS(Number.parseInt(item.acw_time)),
                 };
             })
         );
@@ -1382,6 +1384,7 @@ export class CdrsService {
                         this.secondsToHHMMSS(rawHoldTime),
                         this.secondsToHHMMSS(rawWaitingTime),
                         this.secondsToHHMMSS(rawRingingTime),
+			            this.secondsToHHMMSS(Number.parseInt(data.acw_time)),
                         campaign,
                         leadGroupName,
                         dialMethodLabel(data.dial_method),
