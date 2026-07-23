@@ -142,6 +142,15 @@ export class CdrsSchema {
     @Prop()
     actual_talktime: string;
 
+    @Prop({
+        type: String,
+        index: true,
+        default: "",
+    })
+    call_status: string;
+
+    @Prop()
+    acw_time: number;
 }
 
 let cdrsSchema = SchemaFactory.createForClass( CdrsSchema );
