@@ -82,7 +82,7 @@ export class LeadGroupService {
         let result = await this.commonDbFn.findAllWithPagination( this.lead_group, queryParams, searchFields, populateFields, { status: 1, _id: -1 }, true, true );
         if ( result.statusCode == 404 ) { return result }
 
-        result.data = result.data.map(item => ({...item, name: item.name?.trim().replace(/\s+/g, ' ')}));
+        // result.data = result.data.map(item => ({...item, name: item.name?.trim().replace(/\s+/g, ' ')}));
 
         // let data = result.data;
         // let totalLeadCount,finalArray=[];
