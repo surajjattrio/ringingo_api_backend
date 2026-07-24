@@ -412,17 +412,24 @@ export class CommonDBFunctions {
 
         //Check search parameters
         if (queryParams.search != "" && queryParams.search != undefined && searchFields != "") {
-            searchFields.map((data) => {
-                searchParams.push({ [data]: { '$regex': queryParams.search, '$options': 'i' } })
-            })
+            // Escape regex special characters and replace multiple spaces with \s+
+            const searchRegex = queryParams.search
+                .trim()
+                .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+                .replace(/\s+/g, "\\s+");
 
-            // custom search for lead_management_unique
+            // Create search conditions for all search fields
+            for (const data of searchFields) {
+                searchParams.push({ [data]: { $regex: searchRegex, $options: "i" } });
+            }
+
+            // Custom search for lead_management_unique
             if (queryParams.tableName === "lead_management_unique") {
                 searchParams.push(
-                    { first_name: { $regex: queryParams.search, $options: 'i' } },
-                    { phone_number: { $regex: queryParams.search, $options: 'i' } },
-                    { custom_phone_number: { $regex: queryParams.search, $options: 'i' } },
-                    { "custom_fields.user_code": { $regex: queryParams.search, $options: 'i' } }
+                    { first_name: { $regex: searchRegex, $options: "i" } },
+                    { phone_number: { $regex: searchRegex, $options: "i" } },
+                    { custom_phone_number: { $regex: searchRegex, $options: "i" } },
+                    { "custom_fields.user_code": { $regex: searchRegex, $options: "i" } }
                 );
             }
 

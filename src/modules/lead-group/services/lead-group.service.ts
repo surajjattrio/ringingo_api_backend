@@ -43,14 +43,14 @@ export class LeadGroupService {
     @return Object             : Success / Error
     */
 
-    async create ( createLeadGroupDto: CreateLeadGroupDto ) {
+    async create(createLeadGroupDto: CreateLeadGroupDto) {
         const { name, tenant_uuid, role, webhook } = createLeadGroupDto;
-        let where = [ { name }, { tenant_uuid } ];
+        let where = [{ name }, { tenant_uuid }];
         let logMessages = {
             logErrorMsg: "Lead group already exist \n",
             logSuccessMsg: "Lead group created successfully \n"
         }
-        if ( role == "manager" ) {
+        if (role == "manager") {
             //Fetch tenant of manager
             let tenantInfo;
             const lookupUuid = createLeadGroupDto.manager_uuid || tenant_uuid;
@@ -64,9 +64,9 @@ export class LeadGroupService {
         }
         if (webhook === true) {
             const result = this.commonDbFn.findAndInsert(this.lead_group, where, createLeadGroupDto, JSON.stringify(logMessages), "and", true);
-            return {statusCode: (await result)?.statusCode, message: (await result)?.data, lead_group_uuid: (await result)?.message?.uuid }
+            return { statusCode: (await result)?.statusCode, message: (await result)?.data, lead_group_uuid: (await result)?.message?.uuid }
         } else {
-            return this.commonDbFn.findAndInsert( this.lead_group, where, createLeadGroupDto, JSON.stringify( logMessages ), "and");
+            return this.commonDbFn.findAndInsert(this.lead_group, where, createLeadGroupDto, JSON.stringify(logMessages), "and");
         }
     }
 
@@ -76,13 +76,11 @@ export class LeadGroupService {
     @return Object     : Array of an object with total count of lead group with data
     */
 
-    async findAll ( queryParams ) {
-        let searchFields = [ "name" ];
-        let populateFields = [ { path: "user_group", select: 'name' } ];
-        let result = await this.commonDbFn.findAllWithPagination( this.lead_group, queryParams, searchFields, populateFields, { status: 1, _id: -1 }, true, true );
-        if ( result.statusCode == 404 ) { return result }
-
-        // result.data = result.data.map(item => ({...item, name: item.name?.trim().replace(/\s+/g, ' ')}));
+    async findAll(queryParams) {
+        let searchFields = ["name"];
+        let populateFields = [{ path: "user_group", select: 'name' }];
+        let result = await this.commonDbFn.findAllWithPagination(this.lead_group, queryParams, searchFields, populateFields, { status: 1, _id: -1 }, true, true);
+        if (result.statusCode == 404) { return result }
 
         // let data = result.data;
         // let totalLeadCount,finalArray=[];
@@ -91,7 +89,7 @@ export class LeadGroupService {
         //    result.totalLeadCount = totalLeadCount;
         //    finalArray.push(result);
         // }
-        return this.commonDbFn.sendResponseWithCount( HttpStatus.OK, result.data, result.count );
+        return this.commonDbFn.sendResponseWithCount(HttpStatus.OK, result.data, result.count);
     }
 
     /*
@@ -100,12 +98,12 @@ export class LeadGroupService {
     @return Object  : Result of lead group
     */
 
-    async findOne ( uuid: string ) {
+    async findOne(uuid: string) {
         let logMessages = {
             logErrorMsg: `Lead group not found by uuid : ${uuid} \n`,
             logSuccessMsg: `Lead group success fetched by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.findOne( this.lead_group, uuid, JSON.stringify( logMessages ) );
+        return this.commonDbFn.findOne(this.lead_group, uuid, JSON.stringify(logMessages));
     }
 
     /*
@@ -115,30 +113,30 @@ export class LeadGroupService {
     @return Object             : Success / Error
     */
 
-    async update ( uuid: string, createLeadGroupDto: CreateLeadGroupDto ) {
+    async update(uuid: string, createLeadGroupDto: CreateLeadGroupDto) {
         const { name, tenant_uuid, campaign_uuid } = createLeadGroupDto;
-        const getLeadGroup = await this.lead_group.findOne( { uuid } ).exec();
-        if ( getLeadGroup?.name != name ) {
-            const checkLeadGroupExist = await this.lead_group.find( { $and: [ { name }, { tenant_uuid } ] } ).count().exec();
-            if ( checkLeadGroupExist > 0 ) {
-                Logger.error( "Lead group already exist \n", putMethod );
-                return this.commonDbFn.sendResponseWithMessage( HttpStatus.CONFLICT, `Lead group already exist` );
+        const getLeadGroup = await this.lead_group.findOne({ uuid }).exec();
+        if (getLeadGroup?.name != name) {
+            const checkLeadGroupExist = await this.lead_group.find({ $and: [{ name }, { tenant_uuid }] }).count().exec();
+            if (checkLeadGroupExist > 0) {
+                Logger.error("Lead group already exist \n", putMethod);
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `Lead group already exist`);
             }
         }
         //If campaign update then update campaign based on lead group in leads_in_queue collection
-        if ( getLeadGroup?.campaign_uuid != campaign_uuid ) {
+        if (getLeadGroup?.campaign_uuid != campaign_uuid) {
             try {
-                Logger.debug( "Updating campaign uuid" );
-                this.leads_in_queue.updateMany( { lead_group_uuid: uuid }, { campaign_uuid } );
-            } catch ( error ) {
-                console.log( "Error", error.message );
+                Logger.debug("Updating campaign uuid");
+                this.leads_in_queue.updateMany({ lead_group_uuid: uuid }, { campaign_uuid });
+            } catch (error: any) {
+                console.log("Error", error.message);
             }
         }
         let logMessages = {
             logErrorMsg: `Lead group not found by uuid : ${uuid} \n`,
             logSuccessMsg: `Lead group updated successfully by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.update( this.lead_group, uuid, createLeadGroupDto, JSON.stringify( logMessages ) );
+        return this.commonDbFn.update(this.lead_group, uuid, createLeadGroupDto, JSON.stringify(logMessages));
     }
 
     /*
@@ -147,9 +145,9 @@ export class LeadGroupService {
     @return Object      : Array of an object with total count of lead group with data
     */
 
-    async advancedSearch ( searchParams ) {
-        let populateFields = [ { path: "user_group", select: 'name' } ];
-        return this.commonDbFn.advancedSearch( this.lead_group, searchParams, populateFields );
+    async advancedSearch(searchParams) {
+        let populateFields = [{ path: "user_group", select: 'name' }];
+        return this.commonDbFn.advancedSearch(this.lead_group, searchParams, populateFields);
     }
 
     /*
@@ -159,12 +157,12 @@ export class LeadGroupService {
     @return Object : Success / Error
     */
 
-    async patch ( uuid: string, body ) {
+    async patch(uuid: string, body) {
         let logMessages = {
             logErrorMsg: `Lead group not found by uuid : ${uuid} \n`,
             logSuccessMsg: `Lead group status updated successfully by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.update( this.lead_group, uuid, body, JSON.stringify( logMessages ) );
+        return this.commonDbFn.update(this.lead_group, uuid, body, JSON.stringify(logMessages));
     }
 
     /*
@@ -173,12 +171,12 @@ export class LeadGroupService {
     @return Object : Success / Error
     */
 
-    async remove ( uuid: string ) {
+    async remove(uuid: string) {
         let logMessages = {
             logErrorMsg: `Lead group not exist by uuid : ${uuid} \n`,
             logSuccessMsg: `Lead group deleted successfully by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.delete( this.lead_group, { uuid }, JSON.stringify( logMessages ) );
+        return this.commonDbFn.delete(this.lead_group, { uuid }, JSON.stringify(logMessages));
     }
 
     /*
@@ -236,7 +234,7 @@ export class LeadGroupService {
                 );
             }
 
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(
                 `Error in catch block ===> removeAllLeads()`,
                 error.message
@@ -250,30 +248,30 @@ export class LeadGroupService {
     @return Object : Success / Error
     */
 
-    async exportLeadsWithDetails ( lead_group_uuid: string, queryParams ) {
+    async exportLeadsWithDetails(lead_group_uuid: string, queryParams) {
         const { name, timezone } = queryParams;
         try {
             // Set the response headers for CSV download
             const file = `${name}.csv`;
             const filePath = `${process.env.UPLOAD_DIRECTORY}${file}`;
-            if ( fs.existsSync( filePath ) ) fs.unlinkSync( filePath ); // unlink file if the file exists
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath); // unlink file if the file exists
 
-            let totalLeads = await this.lead_management.find( { lead_group_uuid } ).count().exec();
-            let loopCounter = Math.ceil( totalLeads / 1000 ); // [Get data in Batch of 1000 leads]
+            let totalLeads = await this.lead_management.find({ lead_group_uuid }).count().exec();
+            let loopCounter = Math.ceil(totalLeads / 1000); // [Get data in Batch of 1000 leads]
             // let loopCounter = 2; // [Batch delete of 1000 leads]
             let i, skip, limit = 1000, result;
 
             // let populateFields = [{ path: "user", select: "username" }, { path: "disposition", select: 'name -_id' },
             // { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }
             // ];
-            let populateFields = [ { path: "user", select: "username" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "disposition", select: 'name -_id' },
+            let populateFields = [{ path: "user", select: "username" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: 'name -_id -disposition_uuid' }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "disposition", select: 'name -_id' },
             { path: "cdrs_details", select: 'billsecond createdAt -_id', options: { sort: { createdAt: -1 }, limit: 1 } }
             ];
 
-            if ( totalLeads > 0 ) {
-                for ( i = 0; i < loopCounter; i++ ) {
+            if (totalLeads > 0) {
+                for (i = 0; i < loopCounter; i++) {
                     skip = i * limit;
-                    result = await this.lead_management.find( { lead_group_uuid }, { call_count: 1, lead_status: 1, user_uuid: 1, createdAt: 1, lead_management_uuid: 1, first_name: 1, last_name: 1, phone_code: 1, phone_number: 1, _id: 0 } ).populate( populateFields ).limit( limit ).skip( skip ).lean().exec();
+                    result = await this.lead_management.find({ lead_group_uuid }, { call_count: 1, lead_status: 1, user_uuid: 1, createdAt: 1, lead_management_uuid: 1, first_name: 1, last_name: 1, phone_code: 1, phone_number: 1, _id: 0 }).populate(populateFields).limit(limit).skip(skip).lean().exec();
 
                     result = result.map((item: any) => {
                         if ((!item.campaign_details || item.campaign_details.length === 0)) {
@@ -286,14 +284,14 @@ export class LeadGroupService {
                         return item;
                     });
 
-                    this.addDataToCsv( filePath, result, name, timezone );
+                    this.addDataToCsv(filePath, result, name, timezone);
                 }
-                return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, 'Leads exported successfully' );
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, 'Leads exported successfully');
             } else {
-                return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, 'No leads found' );
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, 'No leads found');
             }
-        } catch ( error ) {
-            Logger.error( `Error in catch block ==>`, error.message );
+        } catch (error: any) {
+            Logger.error(`Error in catch block ==>`, error.message);
         }
     }
 
@@ -305,34 +303,34 @@ export class LeadGroupService {
     @return Object         : Success / Error
     */
 
-    addDataToCsv ( filePath, result, leadGroupName, timezone ) {
+    addDataToCsv(filePath, result, leadGroupName, timezone) {
         // Check if the file exists
-        if ( !fs.existsSync( filePath ) ) {
+        if (!fs.existsSync(filePath)) {
             // Create the file if it doesn't exist
-            fs.writeFileSync( filePath, '' );
+            fs.writeFileSync(filePath, '');
         }
 
         // Create a writable stream in append mode
-        const stream = fs.createWriteStream( filePath, { flags: 'a' } );
+        const stream = fs.createWriteStream(filePath, { flags: 'a' });
 
         // Write the CSV header if the file is empty
-        if ( fs.statSync( filePath ).size === 0 ) {
+        if (fs.statSync(filePath).size === 0) {
             // const header = 'First Name,Last Name,Phone Code,Phone Number,Lead Group,Last Called Username,Called Count,Lead Status,Call duration,Last Call Date,Lead Entry Date\n';
             const header = 'First Name,Last Name,Phone Code,Phone Number,Lead Group,Last Called Username,Campaign,Gender,Description,Country,Address,City,State,Province,Postal Code,DOB,Alternative Phone Number,Email,Called Count,Lead Status,Call duration,Last Call Date,Lead Entry Date\n';
-            stream.write( header );
+            stream.write(header);
         }
 
         // Write each data object as a CSV row
         let leadEntryDate, cdrsLastCallDate;
-        result.forEach( ( item ) => {
-            leadEntryDate = moment( new Date( item.createdAt ) ).tz( timezone ).format( "YYYY-MM-DD HH:mm:ss" );
-            cdrsLastCallDate = item.cdrs_details[ 0 ]?.createdAt == undefined ? "" : moment( new Date( item.cdrs_details[ 0 ]?.createdAt ) ).tz( timezone ).format( "YYYY-MM-DD HH:mm:ss" );
+        result.forEach((item) => {
+            leadEntryDate = moment(new Date(item.createdAt)).tz(timezone).format("YYYY-MM-DD HH:mm:ss");
+            cdrsLastCallDate = item.cdrs_details[0]?.createdAt == undefined ? "" : moment(new Date(item.cdrs_details[0]?.createdAt)).tz(timezone).format("YYYY-MM-DD HH:mm:ss");
 
             // const row = `${item.first_name},${item.last_name},${item.phone_code},${item.phone_number},${leadGroupName},${(item.user[0]?.username) == undefined ? "" : item.user[0]?.username},${item.call_count},${item.disposition[0]?.name},${(item.cdrs_details[0]?.billsecond) == undefined ? 0 : item.cdrs_details[0]?.billsecond},${cdrsLastCallDate},${leadEntryDate}\n`;
             // stream.write(row);
-            const row = `${item.first_name},${item.last_name},${item.phone_code},${item.phone_number},${leadGroupName},${( item.user[ 0 ]?.username ) == undefined ? "" : item.user[ 0 ]?.username},${( item.campaign_details[ 0 ]?.name ) == undefined ? "" : item.campaign_details[ 0 ].name},${( item.gender == undefined ) ? "" : item.gender},${( item.description == undefined ) ? "" : item.description},${( item.country[ 0 ]?.name ) == undefined ? "" : item.country[ 0 ]?.name},${( item.address == undefined ) ? "" : item.description},${( item.city == undefined ) ? "" : item.city},${( item.state == undefined ) ? "" : item.state},${( item.province == undefined ) ? "" : item.province},${( item.postal_code == undefined ) ? "" : item.postal_code},${( item.dob == undefined ) ? "" : item.dob},${( item.alternate_phone_number == undefined ) ? "" : item.alternate_phone_number},${( item.email == undefined ) ? "" : item.email},${item.call_count},${item.disposition[ 0 ]?.name},${( item.cdrs_details[ 0 ]?.billsecond ) == undefined ? 0 : item.cdrs_details[ 0 ]?.billsecond},${cdrsLastCallDate},${leadEntryDate}\n`;
-            stream.write( row );
-        } );
+            const row = `${item.first_name},${item.last_name},${item.phone_code},${item.phone_number},${leadGroupName},${(item.user[0]?.username) == undefined ? "" : item.user[0]?.username},${(item.campaign_details[0]?.name) == undefined ? "" : item.campaign_details[0].name},${(item.gender == undefined) ? "" : item.gender},${(item.description == undefined) ? "" : item.description},${(item.country[0]?.name) == undefined ? "" : item.country[0]?.name},${(item.address == undefined) ? "" : item.description},${(item.city == undefined) ? "" : item.city},${(item.state == undefined) ? "" : item.state},${(item.province == undefined) ? "" : item.province},${(item.postal_code == undefined) ? "" : item.postal_code},${(item.dob == undefined) ? "" : item.dob},${(item.alternate_phone_number == undefined) ? "" : item.alternate_phone_number},${(item.email == undefined) ? "" : item.email},${item.call_count},${item.disposition[0]?.name},${(item.cdrs_details[0]?.billsecond) == undefined ? 0 : item.cdrs_details[0]?.billsecond},${cdrsLastCallDate},${leadEntryDate}\n`;
+            stream.write(row);
+        });
 
         // Close the stream
         stream.end();
