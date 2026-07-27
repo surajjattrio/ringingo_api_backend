@@ -65,9 +65,7 @@ export class InboundCallQueueDto {
 
     @IsOptional()
     @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => QueueDetailDto)
-    selected_queues: QueueDetailDto[];
+    selected_queues: any[];
 
     @IsOptional()
     custom_callid: String

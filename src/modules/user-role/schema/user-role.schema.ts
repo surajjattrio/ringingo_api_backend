@@ -83,6 +83,9 @@ export class UserRoleSchema {
 
     @Prop({ default: "30" })
     idle_timeout: String
+
+    @Prop({ default: "1" })
+    callqueue_selection: String
 }
 
 let userRoleSchema = SchemaFactory.createForClass( UserRoleSchema );

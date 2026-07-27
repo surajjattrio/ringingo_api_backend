@@ -100,7 +100,7 @@ export class AgentService {
         }
 
         let sipProfileUUID = tenant_uuid[0]?.sip_profile_uuid;
-        let populateFiled = [{ path: "agent_permission", select: "name status pbx_mode call_center_mode call_report login_logout_report recording follow_up sticky_agent number_masking settings breakcode whatsapp instagram facebook sms unallocated_leads agent_script auto_logout idle_timeout" }, { path: "extension_details", select: "username password recording caller_id_number -_id uuid" }, { path: "tenant", select: "domain -_id -uuid" }]; // yaksh
+        let populateFiled = [{ path: "agent_permission", select: "name status pbx_mode call_center_mode call_report login_logout_report recording follow_up sticky_agent number_masking settings breakcode whatsapp instagram facebook sms unallocated_leads agent_script auto_logout idle_timeout callqueue_selection" }, { path: "extension_details", select: "username password recording caller_id_number -_id uuid" }, { path: "tenant", select: "domain -_id -uuid" }]; // yaksh
 
         let where = [{ username }, { tenant_uuid: tenant_uuid[0]?.uuid }];
         agent = await this.user.findOne({ $and: where }, { username: 1, uuid: 1, email: 1, password: 1, user_role: 1, user_role_uuid: 1, tenant_uuid: 1, campaign_uuid: 1, default_extension: 1, is_logged_in: 1, is_logged_in_mobile: 1, recording: 1, browserToken: 1, status: 1, manager_uuid: 1, omni_messaging_channel_uuid: 1 }).populate(populateFiled).exec();

@@ -107,4 +107,10 @@ export class CreateUserRoleDto {
     @ApiProperty()
     @IsOptional()
     idle_timeout: string
+
+    @ApiProperty({ description: '0 - Enable | 1 - Disable', default: "1" })
+    @IsOptional()
+    @IsNumberString()
+    @IsIn(["0", "1"])
+    callqueue_selection?: string
 }

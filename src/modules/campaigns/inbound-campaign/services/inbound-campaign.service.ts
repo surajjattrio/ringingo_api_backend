@@ -308,7 +308,7 @@ export class InboundCampaignService {
 
     async addAgentInQueueAndTier(inboundCallQueueDto: InboundCallQueueDto, agentState, feature) {
         console.log(agentState, 'agentState from agent in queue and tier');
-        const { custom_callid, extension, domain, campaign_uuid, lead_management_uuid, lead_status, lead_status_1, lead_status_2, campaign_type, code, custom_phone_number, tenant_uuid, wrap_up_time, wrap_up_time_duration, pause } = inboundCallQueueDto;
+        const { custom_callid, extension, domain, campaign_uuid, lead_management_uuid, lead_status, lead_status_1, lead_status_2, campaign_type, code, custom_phone_number, tenant_uuid, wrap_up_time, wrap_up_time_duration, pause, selected_queues } = inboundCallQueueDto;
         console.log("inside callqueueess inboun camapiafgnnnnn dtooooo", inboundCallQueueDto)
         try {
             let allData, finalResult, self = this;
@@ -414,15 +414,31 @@ export class InboundCampaignService {
             //     return { statusCode: HttpStatus.OK, message: "Agent status set to pause" }
             // }
 
-            if (callQueues.call_queue_uuid.length > 0) {
+            let queuesToProcess: any[] = callQueues?.call_queue_uuid || [];
+            let queueDetailsToProcess: any[] = callQueues?.call_queue_details || [];
+
+            if (Array.isArray(selected_queues) && selected_queues.length > 0) {
+                const selectedUUIDs = selected_queues.map((sq: any) => typeof sq === 'string' ? sq : (sq.uuid || sq.value || sq._id));
+                const filteredIndices = queuesToProcess.map((uuid: any, idx: number) => selectedUUIDs.includes(uuid) ? idx : -1).filter((idx: number) => idx !== -1);
+
+                if (filteredIndices.length > 0) {
+                    queuesToProcess = filteredIndices.map((idx: number) => queuesToProcess[idx]);
+                    queueDetailsToProcess = filteredIndices.map((idx: number) => queueDetailsToProcess[idx]);
+                } else {
+                    queuesToProcess = selected_queues.map((sq: any) => typeof sq === 'string' ? sq : (sq.uuid || sq.value || sq._id));
+                    queueDetailsToProcess = selected_queues.map((sq: any) => typeof sq === 'string' ? { timeout: sq, name: sq } : sq);
+                }
+            }
+
+            if (queuesToProcess.length > 0) {
                 return new Promise(async (resolve) => {
-                    allData = callQueues.call_queue_uuid.map(async (data, i) => {
-                        /*callQueueUUID = data;
+                    allData = queuesToProcess.map(async (data, i) => {
+                         /*callQueueUUID = data;
                         callQueueName = "support";
                         addUpdateAgent = await self.commonFn.addUpdateAgentInQueue(extension,domain,callQueueTimeout,callQueueName,agentState,feature)*/
                         return {
                             statusCode: HttpStatus.OK,
-                            result: await self.commonFn.addUpdateAgentInQueue(extension, domain, callQueues.call_queue_details[i].timeout, callQueues.call_queue_details[i].name, agentState, feature, data)
+                            result: await self.commonFn.addUpdateAgentInQueue(extension, domain, queueDetailsToProcess[i].timeout, queueDetailsToProcess[i].name, agentState, feature, data)
                         }
                     });
 
