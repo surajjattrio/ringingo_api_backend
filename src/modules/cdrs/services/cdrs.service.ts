@@ -1240,7 +1240,7 @@ export class CdrsService {
             let CSV_HEADERS = [
                 'Start Date', 'End Date', 'Caller Id Number', 'Phone Number',
                 'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Answer Time', 'Actual Talk Time',
-                'Call Status', 'Hold Time', 'Waiting Time', 'Ringing Time', 'Campaign',
+                'Call Status', 'Hold Time', 'Waiting Time', 'Ringing Time', 'ACW Time', 'Campaign',
                 'Lead Group Name', 'Dial Method', 'Disconnected By',
                 'Disposition', 'Sub Disposition 1', 'Sub Disposition 2',
                 'Direction', 'CSAT Score', 'Comment', 'Recording Path'
