@@ -91,19 +91,64 @@ export class ClickToCallService {
     return response;
   }
 
+  // async generateXML(username, domain, password, tenant_uuid, clickToCallInsertedUUID) {
+  //   try {
+  //     //Directory DATA
+  //     var file_path_directory = `${process.env.READ_TENANT_XML}`;
+  //     var data_dir = fs.readFileSync(file_path_directory, 'utf8');
+  //     var directory_data: any = data_dir.toString();
+
+  //     //Extension details
+  //     directory_data = directory_data.replaceAll('#EXT_USERNAME#', username);
+  //     directory_data = directory_data.replaceAll('#TENANT#', domain);
+  //     directory_data = directory_data.replaceAll('#EXT_PASSWORD#', password);
+  //     directory_data = directory_data.replaceAll('#TENANT_UUID#', tenant_uuid);
+  //     directory_data = directory_data.replaceAll('#USER_UUID#', clickToCallInsertedUUID);
+  //     directory_data = directory_data.replaceAll('#EXTENSION_UUID#', "click2call");
+  //     directory_data = directory_data.replaceAll('#EXT_CID_NAME#', "");
+  //     directory_data = directory_data.replaceAll('#EXT_CID_NUMBER#', "");
+  //     //Voicemail details
+  //     directory_data = directory_data.replaceAll('#VOICEMAIL_STATUS#', "false");
+  //     directory_data = directory_data.replaceAll('#VOICEMAIL_PASSWORD#', "");
+  //     directory_data = directory_data.replaceAll('#VOICEMAIL_MAIL#', "");
+  //     directory_data = directory_data.replaceAll('#VOICEMAIL_ATTACH#', "false");
+
+  //     var directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${domain}.xml`;
+  //     fs.writeFileSync(directory_file_name, directory_data.toString());
+  //     console.log(directory_file_name);
+  //     Logger.debug(`File written successfully with : ${username}.${domain}.xml \n`);
+  //   } catch (error) {
+  //     Logger.error(`Unable to generate XML`, error.message);
+  //   }
+
+  // }
+
   async generateXML(username, domain, password, tenant_uuid, clickToCallInsertedUUID) {
     try {
       //Directory DATA
-      var file_path_directory = `${process.env.READ_TENANT_XML}`;
+      let file_path_directory = `${process.env.READ_TENANT_XML}`;
+      if (!file_path_directory || file_path_directory === 'undefined' || !fs.existsSync(file_path_directory)) {
+        const relPath = (file_path_directory || '').replace(/^[\/\\]?opt[\/\\]/, '');
+        const cwdPath = path.join(process.cwd(), relPath);
+        if (fs.existsSync(cwdPath)) {
+          file_path_directory = cwdPath;
+        } else {
+          const defaultSamplePath = path.join(process.cwd(), 'caching', 'sample', 'directory', 'EXT.TENANT.xml');
+          if (fs.existsSync(defaultSamplePath)) {
+            file_path_directory = defaultSamplePath;
+          }
+        }
+      }
+
       var data_dir = fs.readFileSync(file_path_directory, 'utf8');
       var directory_data: any = data_dir.toString();
 
       //Extension details
-      directory_data = directory_data.replaceAll('#EXT_USERNAME#', username);
-      directory_data = directory_data.replaceAll('#TENANT#', domain);
-      directory_data = directory_data.replaceAll('#EXT_PASSWORD#', password);
-      directory_data = directory_data.replaceAll('#TENANT_UUID#', tenant_uuid);
-      directory_data = directory_data.replaceAll('#USER_UUID#', clickToCallInsertedUUID);
+      directory_data = directory_data.replaceAll('#EXT_USERNAME#', username || '');
+      directory_data = directory_data.replaceAll('#TENANT#', domain || '');
+      directory_data = directory_data.replaceAll('#EXT_PASSWORD#', password || '');
+      directory_data = directory_data.replaceAll('#TENANT_UUID#', tenant_uuid || '');
+      directory_data = directory_data.replaceAll('#USER_UUID#', clickToCallInsertedUUID || '');
       directory_data = directory_data.replaceAll('#EXTENSION_UUID#', "click2call");
       directory_data = directory_data.replaceAll('#EXT_CID_NAME#', "");
       directory_data = directory_data.replaceAll('#EXT_CID_NUMBER#', "");
@@ -113,11 +158,25 @@ export class ClickToCallService {
       directory_data = directory_data.replaceAll('#VOICEMAIL_MAIL#', "");
       directory_data = directory_data.replaceAll('#VOICEMAIL_ATTACH#', "false");
 
-      var directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${domain}.xml`;
-      fs.writeFileSync(directory_file_name, directory_data.toString());
+      let directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${domain}.xml`;
+      try {
+        const targetDir = path.dirname(directory_file_name);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        fs.writeFileSync(directory_file_name, directory_data.toString());
+      } catch (err: any) {
+        Logger.error(`Failed to write XML file to ${directory_file_name}: ${err}`);
+        const fallbackDir = path.join(process.cwd(), 'caching', 'directory');
+        if (!fs.existsSync(fallbackDir)) {
+          fs.mkdirSync(fallbackDir, { recursive: true });
+        }
+        directory_file_name = path.join(fallbackDir, `${username}.${domain}.xml`);
+        fs.writeFileSync(directory_file_name, directory_data.toString());
+      }
       console.log(directory_file_name);
       Logger.debug(`File written successfully with : ${username}.${domain}.xml \n`);
-    } catch (error) {
+    } catch (error: any) {
       Logger.error(`Unable to generate XML`, error.message);
     }
 
@@ -237,7 +296,7 @@ export class ClickToCallService {
       fs.writeFileSync(filePath, audioBuffer as Uint8Array);
 
       return { statusCode: HttpStatus.OK, message: "TTS generated successfully", file: fileName, path: filePath };
-    } catch (error) {
+    } catch (error: any) {
       console.log("===== SARVAM ERROR START =====");
       console.log("Message:", error.message);
       console.log("Status:", error.response.status);
@@ -295,7 +354,6 @@ export class ClickToCallService {
       /* ---------------- TTS GENERATION ---------------- */
 
       const audioPath = `${process.env.UPLOAD_DIRECTORY}CTC_Tts/${phone_number}.wav`;
-
       const ttsResponse: any = await this.greetingService.generateSpeech(text, audioPath);
       console.log("ttsResponsettsResponse", ttsResponse);
 

@@ -6,6 +6,7 @@ import { CommonFunctions } from "src/modules/common/common_functions";
 import { CreateExtensionDto } from "../dto/create-extension-dto";
 import { ExtensionDocument, ExtensionSchema } from "../schema/extension.schema";
 import * as fs from "fs";
+import * as path from "path";
 import * as xml2js from "xml2js";
 import * as esl from "modesl";
 import { TenantDocument, TenantSchema } from "src/modules/tenant/schema/tenant.schema";
@@ -647,45 +648,124 @@ export class ExtensionService {
     @return Object          : XML file will be created
     */
 
-    async generateTenantXml ( extensionDetails, decodePassword, extensionUUID, voicemail ) {
-        console.log("generateT9enantXml Calll",extensionDetails);
-        const { username, caller_id_name, caller_id_number, tenant_uuid, user_uuid } = extensionDetails;
-        const { voicemail_status, password, mail_to, attach_file } = voicemail;
-        let extPassword = decodePassword;
-        const getExtension = await this.tenant.findOne( { uuid: extensionDetails.tenant_uuid }, { domain: 1 } ).exec();
-        var tenant;
-        if ( getExtension ) {
-            tenant = ( getExtension.domain == "" || getExtension.domain == null ) ? '' :
-                getExtension.domain;
-        } else {
-            Logger.debug( `GenerateTenatXML tenant not found by uuid : ${extensionDetails.tenant_uuid} \n` );
+    // async generateTenantXml(extensionDetails, decodePassword, extensionUUID, voicemail) {
+    //     console.log("generateT9enantXml Calll", extensionDetails);
+    //     const { username, caller_id_name, caller_id_number, tenant_uuid, user_uuid } = extensionDetails;
+    //     const { voicemail_status, password, mail_to, attach_file } = voicemail;
+    //     let extPassword = decodePassword;
+    //     const getExtension = await this.tenant.findOne({ uuid: extensionDetails.tenant_uuid }, { domain: 1 }).exec();
+    //     var tenant;
+    //     if (getExtension) {
+    //         tenant = (getExtension.domain == "" || getExtension.domain == null) ? '' :
+    //             getExtension.domain;
+    //     } else {
+    //         Logger.debug(`GenerateTenatXML tenant not found by uuid : ${extensionDetails.tenant_uuid} \n`);
+    //     }
+
+    //     //Directory DATA
+    //     var file_path_directory = `${process.env.READ_TENANT_XML}`;
+    //     var data_dir = fs.readFileSync(file_path_directory, 'utf8');
+    //     var directory_data = data_dir.toString();
+
+    //     //Extension details
+    //     directory_data = directory_data.replaceAll('#EXT_USERNAME#', username);
+    //     directory_data = directory_data.replaceAll('#TENANT#', tenant);
+    //     directory_data = directory_data.replaceAll('#EXT_PASSWORD#', extPassword);
+    //     directory_data = directory_data.replaceAll('#TENANT_UUID#', tenant_uuid);
+    //     directory_data = directory_data.replaceAll('#USER_UUID#', user_uuid);
+    //     directory_data = directory_data.replaceAll('#EXTENSION_UUID#', extensionUUID);
+    //     directory_data = directory_data.replaceAll('#EXT_CID_NAME#', caller_id_name);
+    //     directory_data = directory_data.replaceAll('#EXT_CID_NUMBER#', caller_id_number);
+    //     //Voicemail details
+    //     directory_data = directory_data.replaceAll('#VOICEMAIL_STATUS#', voicemail_status == 0 ? "true" : "false");
+    //     directory_data = directory_data.replaceAll('#VOICEMAIL_PASSWORD#', password);
+    //     directory_data = directory_data.replaceAll('#VOICEMAIL_MAIL#', mail_to);
+    //     directory_data = directory_data.replaceAll('#VOICEMAIL_ATTACH#', attach_file);
+
+    //     var directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${tenant}.xml`;
+    //     fs.writeFileSync(directory_file_name, directory_data.toString());
+    //     console.log(directory_file_name);
+    //     Logger.debug(`File written successfully with : ${username}.${tenant}.xml \n`);
+
+    // }
+
+    private async getTenantDomain(tenantUuid: string): Promise<string> {
+        const getExtension = await this.tenant.findOne({ uuid: tenantUuid }, { domain: 1 }).exec();
+        if (getExtension) {
+            return (getExtension.domain == "" || getExtension.domain == null) ? '' : String(getExtension.domain);
         }
+        Logger.debug(`GenerateTenatXML tenant not found by uuid : ${tenantUuid} \n`);
+        return '';
+    }
 
-        //Directory DATA
-        var file_path_directory = `${process.env.READ_TENANT_XML}`;
-        var data_dir = fs.readFileSync( file_path_directory, 'utf8' );
-        var directory_data = data_dir.toString();
+    private getTemplateFilePath(): string {
+        let file_path_directory = `${process.env.READ_TENANT_XML}`;
+        if (!file_path_directory || file_path_directory === 'undefined' || !fs.existsSync(file_path_directory)) {
+            const relPath = (file_path_directory || '').replace(/^[\/\\]?opt[\/\\]/, '');
+            const cwdPath = path.join(process.cwd(), relPath);
+            if (fs.existsSync(cwdPath)) {
+                return cwdPath;
+            }
+            const defaultSamplePath = path.join(process.cwd(), 'caching', 'sample', 'directory', 'EXT.TENANT.xml');
+            if (fs.existsSync(defaultSamplePath)) {
+                return defaultSamplePath;
+            }
+        }
+        return file_path_directory;
+    }
 
-        //Extension details
-        directory_data = directory_data.replaceAll( '#EXT_USERNAME#', username );
-        directory_data = directory_data.replaceAll( '#TENANT#', tenant );
-        directory_data = directory_data.replaceAll( '#EXT_PASSWORD#', extPassword );
-        directory_data = directory_data.replaceAll( '#TENANT_UUID#', tenant_uuid );
-        directory_data = directory_data.replaceAll( '#USER_UUID#', user_uuid );
-        directory_data = directory_data.replaceAll( '#EXTENSION_UUID#', extensionUUID );
-        directory_data = directory_data.replaceAll( '#EXT_CID_NAME#', caller_id_name );
-        directory_data = directory_data.replaceAll( '#EXT_CID_NUMBER#', caller_id_number );
+    private replaceTemplateData(templateData: string, extensionDetails: any, voicemail: any, decodePassword: string, extensionUUID: string, tenant: string): string {
+        const { username, caller_id_name, caller_id_number, tenant_uuid, user_uuid } = extensionDetails || {};
+        const { voicemail_status, password, mail_to, attach_file } = voicemail || {};
+
+        let directory_data = templateData;
+        directory_data = directory_data.replaceAll('#EXT_USERNAME#', username || '');
+        directory_data = directory_data.replaceAll('#TENANT#', tenant || '');
+        directory_data = directory_data.replaceAll('#EXT_PASSWORD#', decodePassword || '');
+        directory_data = directory_data.replaceAll('#TENANT_UUID#', tenant_uuid || '');
+        directory_data = directory_data.replaceAll('#USER_UUID#', user_uuid || '');
+        directory_data = directory_data.replaceAll('#EXTENSION_UUID#', extensionUUID || '');
+        directory_data = directory_data.replaceAll('#EXT_CID_NAME#', caller_id_name || '');
+        directory_data = directory_data.replaceAll('#EXT_CID_NUMBER#', caller_id_number || '');
         //Voicemail details
-        directory_data = directory_data.replaceAll( '#VOICEMAIL_STATUS#', voicemail_status == 0 ? "true" : "false" );
-        directory_data = directory_data.replaceAll( '#VOICEMAIL_PASSWORD#', password );
-        directory_data = directory_data.replaceAll( '#VOICEMAIL_MAIL#', mail_to );
-        directory_data = directory_data.replaceAll( '#VOICEMAIL_ATTACH#', attach_file );
+        directory_data = directory_data.replaceAll('#VOICEMAIL_STATUS#', voicemail_status == 0 ? "true" : "false");
+        directory_data = directory_data.replaceAll('#VOICEMAIL_PASSWORD#', password || '');
+        directory_data = directory_data.replaceAll('#VOICEMAIL_MAIL#', mail_to || '');
+        directory_data = directory_data.replaceAll('#VOICEMAIL_ATTACH#', attach_file || '');
+        return directory_data;
+    }
 
-        var directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${tenant}.xml`;
-        fs.writeFileSync( directory_file_name, directory_data.toString() );
-        console.log( directory_file_name );
-        Logger.debug( `File written successfully with : ${username}.${tenant}.xml \n` );
+    private writeXmlFile(directory_file_name: any, directory_data: string, username: string, tenant: string): void {
+        try {
+            const targetDir = path.dirname(directory_file_name);
+            if (!fs.existsSync(targetDir)) {
+                fs.mkdirSync(targetDir, { recursive: true });
+            }
+            fs.writeFileSync(directory_file_name, directory_data.toString());
+        } catch (err) {
+            Logger.error(`Failed to write XML file to ${directory_file_name}: ${err}`);
+            const fallbackDir = path.join(process.cwd(), 'caching', 'directory');
+            if (!fs.existsSync(fallbackDir)) {
+                fs.mkdirSync(fallbackDir, { recursive: true });
+            }
+            directory_file_name = path.join(fallbackDir, `${String(username)}.${String(tenant)}.xml`);
+            fs.writeFileSync(directory_file_name, directory_data.toString());
+        }
+        console.log(directory_file_name);
+        Logger.debug(`File written successfully with : ${username}.${tenant}.xml \n`);
+    }
 
+    async generateTenantXml(extensionDetails, decodePassword, extensionUUID, voicemail) {
+        console.log("generateT9enantXml Calll", extensionDetails);
+        const { username, tenant_uuid } = extensionDetails || {};
+
+        const tenant = await this.getTenantDomain(extensionDetails?.tenant_uuid);
+        const file_path_directory = this.getTemplateFilePath();
+        const data_dir = fs.readFileSync(file_path_directory, 'utf8');
+        const directory_data = this.replaceTemplateData(data_dir, extensionDetails, voicemail, decodePassword, extensionUUID, tenant);
+
+        const directory_file_name = `${process.env.EXTENSION_DIRECTORY}${username}.${tenant}.xml`;
+        this.writeXmlFile(directory_file_name, directory_data, username, tenant);
     }
 }
 
