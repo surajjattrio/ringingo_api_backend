@@ -52,7 +52,7 @@ export class UserService {
             const role = await this.rolesModel.findOne({ uuid: tenantData.role_uuid.toString() }).exec();
             const whatsappPermission = role?.module_permission?.["messaging"]?.["whatsapp"];
             return Number(whatsappPermission) > 0;
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Error checking tenant WhatsApp permission: ${error.message}`, 'UserService');
             return false;
         }
@@ -209,7 +209,7 @@ export class UserService {
                                     userResult.message._doc.default_extension = extensionUUID;
                                     userResult.message._doc.extension_type = "0";
                                 }
-                            } catch (updateErr) {
+                            } catch (updateErr: any) {
                                 Logger.error("Error updating user with extension UUID", updateErr.message);
                                 console.error("Failed to update user with extension UUID:", updateErr);
                             }
@@ -220,7 +220,7 @@ export class UserService {
                         Logger.error("Failed to create SIP device", "UserService");
                         console.error("SIP device creation failed:", extensionResult);
                     }
-                } catch (err) {
+                } catch (err: any) {
                     Logger.error("Error creating SIP device", err.message);
                     console.error("Error creating SIP device:", err);
                 }
@@ -281,7 +281,7 @@ export class UserService {
         //     const user = await this.user.findOne({ username }, { tenant_uuid: 1 }).exec();
         //     matchQuery = { uuid: user ? user.tenant_uuid : "INVALID_UUID" };
         // }
-         else {
+        else {
             matchQuery = { domain: domain };
         }
 
@@ -306,7 +306,7 @@ export class UserService {
                     ],
                     as: "user"
                 }
-            },{ $unwind: "$user" },
+            }, { $unwind: "$user" },
             {
                 $addFields: {
                     allowedCampaignUuids: "$user.allowed_campaign.value"
@@ -509,7 +509,7 @@ export class UserService {
                     Logger.error(logMessages.logErrorMsg, putMethod);
                 }
                 Logger.debug(logMessages.logSuccessMsg);
-            } catch (err) {
+            } catch (err: any) {
                 Logger.error(`Unable to update extension`, err.message);
             }
         }
@@ -532,7 +532,7 @@ export class UserService {
         if (request == "logout") {
             body.callkit_token = "";
         }
-        
+
         const response = await this.commonDbFn.update(this.user, uuid, body, JSON.stringify(logMessages));
 
         if (response.statusCode == 200) {
@@ -571,15 +571,15 @@ export class UserService {
             logSuccessMsg: `User deleted successfully by uuid : ${uuid} \n`
         }
 
-        const getUserData = await this.user.findOne({ uuid }, { team_user_uid:1, tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
+        const getUserData = await this.user.findOne({ uuid }, { team_user_uid: 1, tenant_uuid: 1, vendor_uid: 1, _id: 0 }).exec();
         const response = await this.commonDbFn.delete(this.user, { uuid }, JSON.stringify(logMessages));
 
         if (response?.statusCode == 200) {
             if (await this.checkTenantWhatsappPermission(getUserData?.tenant_uuid)) {
-                this.userRabbitmqService.publish('user.deleted', { 
-                    uuid, 
+                this.userRabbitmqService.publish('user.deleted', {
+                    uuid,
                     vendor_uid: (getUserData as any)?.vendor_uid,
-                    tenant_uuid: getUserData?.tenant_uuid ,
+                    tenant_uuid: getUserData?.tenant_uuid,
                     team_user_uid: getUserData?.team_user_uid
                 });
             } else {
@@ -631,7 +631,7 @@ export class UserService {
             Logger.debug(`You are logged out from the Account \n`, putMethod);
             return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `You are logged out from the Account`);
 
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Unable to logout user`, error.message);
         }
     }
@@ -705,7 +705,7 @@ export class UserService {
             try {
                 await this.userRabbitmqService.syncManual('user.created', user);
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "User synced successfully with external application");
-            } catch (error) {
+            } catch (error: any) {
                 const errorMessage = error.response?.data?.message || error.message || "Unknown error occurred during sync";
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, `Sync failed: ${errorMessage}`);
             }
