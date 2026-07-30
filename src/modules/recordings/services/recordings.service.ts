@@ -11,6 +11,8 @@ import { exec } from 'child_process';
 import * as fs from "fs";
 import * as archiver from "archiver";
 import { Response } from "express";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
 
 @Injectable()
 
@@ -20,6 +22,7 @@ export class RecordingsService {
         @InjectModel(RecordingsSchema.name) private readonly recordings: Model<RecordingsDocument>,
         @InjectModel(TenantSchema.name) private readonly tenants: Model<TenantDocument>,
         private readonly commonDbFn: CommonDBFunctions,
+        private readonly httpService: HttpService,
     ) { }
 
     /*
@@ -391,14 +394,29 @@ export class RecordingsService {
             for (const rec of recordings) {
                 const filePath = rec.recording_path?.toString();
 
-                if (filePath && fs.existsSync(filePath)) {
-                    let fileName = filePath.split("/").pop();
-                    const number = rec?.direction === 'outbound' ? rec?.destination_number : rec?.caller_id_number;
-                    if (number) {
-                        fileName = `${number}_${fileName}`;
-                    }
-                    Logger.debug(`Adding: ${fileName}`);
+                if (!filePath) {
+                    Logger.error(`File missing: ${filePath}`);
+                    continue;
+                }
 
+                let fileName = filePath.split("/").pop();
+                const number = rec?.direction === 'outbound' ? rec?.destination_number : rec?.caller_id_number;
+                if (number) {
+                    fileName = `${number}_${fileName}`;
+                }
+
+                if (/^https?:\/\//i.test(filePath)) {
+                    try {
+                        const response = await firstValueFrom(
+                            this.httpService.get(filePath, { responseType: "stream" })
+                        );
+                        archive.append(response.data, { name: fileName });
+                        Logger.debug(`Adding (remote): ${fileName}`);
+                    } catch (err: any) {
+                        Logger.error(`Failed to fetch remote recording ${filePath}: ${err.message}`);
+                    }
+                } else if (fs.existsSync(filePath)) {
+                    Logger.debug(`Adding: ${fileName}`);
                     archive.file(filePath, { name: fileName });
                 } else {
                     Logger.error(`File missing: ${filePath}`);

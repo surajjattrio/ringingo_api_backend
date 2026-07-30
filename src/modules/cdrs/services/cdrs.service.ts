@@ -1360,7 +1360,9 @@ export class CdrsService {
                                     : "Not Connected"
                                 : "Not Connected";
 
-                    const recording_path = data?.recording_path ? `${baseUrl}/recordings/download/recording?recording=` + data?.recording_path : "";
+                    const recording_path = data?.recording_path
+                        ? (/^https?:\/\//i.test(data.recording_path) ? data.recording_path : `${baseUrl}/recordings/download/recording?recording=` + data.recording_path)
+                        : "";
 
                     let row = [
                         callstart,

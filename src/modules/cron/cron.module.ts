@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { HttpModule } from '@nestjs/axios';
 import { CronService } from './services/cron.service';
 import { PredictiveCalculationSchema, predictiveCalculationSchema } from '../campaigns/inbound-campaign/schema/predictive-calculation.schema';
 import { CdrsSchema, cdrsSchema } from '../cdrs/schema/cdrs.schema';
@@ -48,7 +49,8 @@ import { CommonModule } from '../common/common.module';
         CdrsModule,
         LoginlogoutreportModule,
         CallQueueReportModule,
-        CommonModule
+        CommonModule,
+        HttpModule
     ],
     providers: [CronService, CdrsArchiveService, CDRSArchieveSearchService, RecordingsService, RequestSchedulerService]
 })
