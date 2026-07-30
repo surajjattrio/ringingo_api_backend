@@ -59,7 +59,11 @@ export class RecordingsController {
     */
 
     downloadWav(@Query() filename, @Res() res) {
-        res.download(`${filename.recording}`);
+        const recording = filename.recording;
+        if (/^https?:\/\//i.test(recording)) {
+            return res.redirect(recording);
+        }
+        res.download(`${recording}`);
     }
 
     /* 

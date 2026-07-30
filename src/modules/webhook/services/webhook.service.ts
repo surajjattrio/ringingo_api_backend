@@ -139,7 +139,9 @@ export class WebhookService {
         const payload = {
             agentFullName,
             disconnectedBy: disconnected_by === "0" ? "Agent" : "Customer",
-            recordingPublicLink: recording_path ? `https://ccprocessapi.ringingo.com/recordings/download/recording?recording=${recording_path}` : "",
+            recordingPublicLink: recording_path
+                ? (/^https?:\/\//i.test(recording_path) ? recording_path : `https://ccprocessapi.ringingo.com/recordings/download/recording?recording=${recording_path}`)
+                : "",
             dialerUrl: tenant?.[0]?.domain ?? "",
             referenceUuid: _id?.toString() ?? "",
             callBackDate: this.getLatestReminder(follow_up),

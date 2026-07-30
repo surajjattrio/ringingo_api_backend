@@ -268,7 +268,10 @@ export class RequestSchedulerService {
 
                 let cdrsData = processedResult.map((cdr: any) => {
                     const recordingPath = cdr?.recording_path || "";
-                    const recordingUrl = cdr?.billsecond > 0 && recordingPath ? `${BASE_RECORDING_URL}${recordingPath}` : "";
+                    const isRemoteRecording = /^https?:\/\//i.test(recordingPath);
+                    const recordingUrl = cdr?.billsecond > 0 && recordingPath
+                        ? (isRemoteRecording ? recordingPath : `${BASE_RECORDING_URL}${recordingPath}`)
+                        : "";
                     let disconnectedBy = "";
 
                     if (cdr?.disconnected_by === "0") { disconnectedBy = "Agent"; }

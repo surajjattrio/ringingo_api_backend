@@ -35,6 +35,9 @@ export class RecordingsSchema {
     @Prop()
     recording_path: String
 
+    @Prop( { default: "local" } )
+    recording_upload_status: String
+
     @Prop()
     direction: String
 

@@ -70,6 +70,9 @@ export class CdrsSchema {
     @Prop()
     recording_path: String
 
+    @Prop( { default: "local" } )
+    recording_upload_status: String
+
     @Prop()
     custom_callid: string
 
