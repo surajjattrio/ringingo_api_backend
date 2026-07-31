@@ -15,8 +15,8 @@ export  class VoiceBroadcastSchema {
     @Prop()
     name : String
 
-    @Prop()
-    lead_group_uuid : String
+    @Prop({ default: [], type: Array })
+    lead_group_uuid : any
     
     @Prop()
     caller_id_type : String

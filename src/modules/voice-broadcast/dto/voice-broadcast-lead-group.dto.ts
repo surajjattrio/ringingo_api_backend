@@ -4,8 +4,8 @@ import { IsNotEmpty, IsOptional, IsUUID, ValidateIf } from "class-validator";
 export class VoiceBroadcastLeadGroupDto {
 
     @ApiProperty()
-    @IsUUID()
-    lead_group_uuid : string
+    @IsNotEmpty()
+    lead_group_uuid : any
 
     @ApiProperty()
     @IsUUID()

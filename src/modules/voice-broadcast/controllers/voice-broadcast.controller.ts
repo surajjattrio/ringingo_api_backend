@@ -191,14 +191,11 @@ export class VoiceBroadcastController {
         startBroadcastDto.tenant_uuid = uuid;
         switch (param) {
             case "in-progress":
-                return this.voice_broadcast.updateBroadcastStatus(startBroadcastDto,param);
-                break;
+                return this.voice_broadcast.updateBroadcastStatus(startBroadcastDto, param);
             case "stop":
-                return this.voice_broadcast.updateBroadcastStatus(startBroadcastDto,param);
-                break;
-	    case "fetch-count":
-                return  this.voice_broadcast.fetchCount(startBroadcastDto);
-                break;
+                return this.voice_broadcast.updateBroadcastStatus(startBroadcastDto, param);
+            case "fetch-count":
+                return this.voice_broadcast.fetchCount(startBroadcastDto);
         }
     }
 
@@ -217,4 +214,3 @@ export class VoiceBroadcastController {
         return this.voice_broadcast.removeLeadGroup(deleteLeadGroupDto);
     }
 }
-

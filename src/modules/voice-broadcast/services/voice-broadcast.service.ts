@@ -86,6 +86,18 @@ export class VoiceBroadcastService implements OnModuleInit {
 
     }
 
+    getLeadGroupUuids ( leadGroupUuidProp: any ): string[] {
+        if ( !leadGroupUuidProp ) return [];
+        if ( Array.isArray( leadGroupUuidProp ) ) return leadGroupUuidProp.map( s => String( s ).trim() ).filter( Boolean );
+        if ( typeof leadGroupUuidProp === 'string' ) {
+            if ( leadGroupUuidProp.includes( ',' ) ) {
+                return leadGroupUuidProp.split( ',' ).map( s => s.trim() ).filter( Boolean );
+            }
+            return [ leadGroupUuidProp.trim() ].filter( Boolean );
+        }
+        return [];
+    }
+
     /*
     @Usage                     : First it will check whether given name exist or not , if not then new voice broadcast will be created else it will throw error
     @Param createConferenceDto : Request paramter that we set into dto
@@ -93,7 +105,7 @@ export class VoiceBroadcastService implements OnModuleInit {
     */
 
     async create ( createVoiceBroadcastDto: CreateVoiceBroadcastDto ) {
-        const { name, tenant_uuid } = createVoiceBroadcastDto;
+        const { name, tenant_uuid, lead_group_uuid } = createVoiceBroadcastDto;
         let where = [ { name }, { tenant_uuid } ];
         let logMessages = {
             logErrorMsg: "Voice broadcast already exist \n",
@@ -102,11 +114,18 @@ export class VoiceBroadcastService implements OnModuleInit {
         let response = await this.commonDbFn.findAndInsert( this.voice_broadcast, where, createVoiceBroadcastDto, JSON.stringify( logMessages ), "and", true );
         if ( response.statusCode == 409 ) { return response; }
 
+        let insertedUUID = response?.message?.uuid;
+
+        const lgUuids = this.getLeadGroupUuids( lead_group_uuid );
+        if ( lgUuids.length > 0 && insertedUUID ) {
+            await this.lead_group.updateMany( { uuid: { $in: lgUuids }, tenant_uuid }, { campaign_uuid: insertedUUID } );
+            await this.lead_management.updateMany( { lead_group_uuid: { $in: lgUuids }, tenant_uuid }, { campaign_uuid: insertedUUID } );
+            await this.ensureQueuePopulatedForAllLeadGroups( insertedUUID, tenant_uuid, lgUuids );
+        }
+
         // Add disposition NEW
         let disposition_uuid: any = await this.disposition.findOne( { name: "NEW" }, { disposition_uuid: 1, _id: 0 } ).exec();
         disposition_uuid = disposition_uuid?.disposition_uuid != null ? disposition_uuid?.disposition_uuid : "";
-
-        let insertedUUID = response?.message?.uuid;
 
         let obj = { disposition_uuid, outbound_campaign_uuid: insertedUUID, tenant_uuid };
         let result = new this.outbound_campaign_diallable_status( obj );
@@ -149,7 +168,7 @@ export class VoiceBroadcastService implements OnModuleInit {
     */
 
     async update ( uuid: string, createVoiceBroadcastDto: CreateVoiceBroadcastDto ) {
-        const { name, tenant_uuid, end_date } = createVoiceBroadcastDto;
+        const { name, tenant_uuid, end_date, lead_group_uuid } = createVoiceBroadcastDto;
         const getVoiceBroadcast: any = await this.voice_broadcast.findOne( { uuid } ).exec();
         if ( getVoiceBroadcast?.name != name ) {
             const checkVoiceBroadcastExist = await this.voice_broadcast.find( { $and: [ { name }, { tenant_uuid } ] } ).count().exec();
@@ -162,6 +181,17 @@ export class VoiceBroadcastService implements OnModuleInit {
             Logger.warn(`End date of broadcast : ${uuid} has been changed \n`);
             this.endDatesOfBroadcasts.push({ broadcast_uuid: uuid, end_date });
         }*/
+
+        if ( lead_group_uuid !== undefined ) {
+            const lgUuids = this.getLeadGroupUuids( lead_group_uuid );
+            await this.lead_group.updateMany( { campaign_uuid: uuid, uuid: { $nin: lgUuids }, tenant_uuid }, { campaign_uuid: "" } );
+            await this.lead_management.updateMany( { campaign_uuid: uuid, lead_group_uuid: { $nin: lgUuids }, tenant_uuid }, { campaign_uuid: "" } );
+            if ( lgUuids.length > 0 ) {
+                await this.lead_group.updateMany( { uuid: { $in: lgUuids }, tenant_uuid }, { campaign_uuid: uuid } );
+                await this.lead_management.updateMany( { lead_group_uuid: { $in: lgUuids }, tenant_uuid }, { campaign_uuid: uuid } );
+                await this.ensureQueuePopulatedForAllLeadGroups( uuid, tenant_uuid, lgUuids );
+            }
+        }
 
         // endDatesOfBroadcasts
         let logMessages = {
@@ -314,23 +344,30 @@ export class VoiceBroadcastService implements OnModuleInit {
         try {
             let allLeads;
             const { lead_group_uuid, tenant_uuid, voice_broadcast_uuid } = voiceBroadcastLeadGroupDto;
+            const lgUuids = this.getLeadGroupUuids( lead_group_uuid );
+            let lgQuery: any = lgUuids.length > 1 ? { $in: lgUuids } : ( lgUuids[ 0 ] || lead_group_uuid );
 
             //Delete old records of tenant if it exist
-            let deleteLeads = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid } );
+            let deleteLeads = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery } );
 
             if ( deleteLeads.deletedCount > 0 ) {
-                Logger.debug( `Deleted total leads : ${deleteLeads.deletedCount} for lead group : ${lead_group_uuid} \n` );
+                Logger.debug( `Deleted total leads : ${deleteLeads.deletedCount} for lead group(s) : ${lgUuids.join( ', ' )} \n` );
             } else {
-                Logger.error( `Unable to delete leads for lead group : ${lead_group_uuid}  REASON == Data not exist that satisy where condition \n` );
+                Logger.error( `Unable to delete leads for lead group(s) : ${lgUuids.join( ', ' )} REASON == Data not exist that satisfy where condition \n` );
             }
 
-            //Get leads of lead group
-            let result = await this.lead_management.find( { lead_group_uuid, tenant_uuid, in_dnc: "1", campaign_uuid: voice_broadcast_uuid }, { lead_management_uuid: 1, lead_group_uuid: 1, lead_status: 1, _id: 0 } ).exec();
+            //Get leads of lead group(s)
+            let result = await this.lead_management.find( {
+                lead_group_uuid: lgQuery,
+                tenant_uuid,
+                in_dnc: "1",
+                $or: [ { campaign_uuid: voice_broadcast_uuid }, { campaign_uuid: "" }, { campaign_uuid: null }, { campaign_uuid: { $exists: false } } ]
+            }, { lead_management_uuid: 1, lead_group_uuid: 1, lead_status: 1, _id: 0 } ).exec();
 
-            if ( result ) {
-                Logger.debug( `Fetched total leads : ${result.length} from lead group : ${lead_group_uuid} \n` );
-            } else {
-                Logger.error( `Unable to fetched leads from lead group : ${lead_group_uuid} \n` );
+            if ( !result || result.length === 0 ) {
+                // Fallback search without campaign_uuid match constraint
+                result = await this.lead_management.find( { lead_group_uuid: lgQuery, tenant_uuid, in_dnc: "1" }, { lead_management_uuid: 1, lead_group_uuid: 1, lead_status: 1, _id: 0 } ).exec();
+                Logger.debug( `Fetched total leads (fallback) : ${result?.length || 0} from lead group(s) : ${lgUuids.join( ', ' )} \n` );
             }
 
             //check lead_status exist or not
@@ -348,27 +385,27 @@ export class VoiceBroadcastService implements OnModuleInit {
             Logger.debug( `Total matched disposition in diallable === count : ${allLeadsArr.length} \n` );
             //Add all leads of lead group
             await this.lead_broadcast_queue.insertMany( allLeadsArr );
-            Logger.debug( `Added total leads in lead broadcast queue: ${allLeadsArr.length} for lead group : ${lead_group_uuid} \n` );
+            Logger.debug( `Added total leads in lead broadcast queue: ${allLeadsArr.length} for lead group(s) : ${lgUuids.join( ', ' )} \n` );
 
             //Take 100 leads from lead_broadcast_queue
-            let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid } ).limit( 100 ).exec();
+            let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).limit( 100 ).exec();
             if ( fetchLeads.length > 0 ) {
                 Logger.debug( `Fetched 100 leads from lead broadcast queue , so deleting 100 records from lead broadcast queue \n` );
 
                 //Add 100 records
-                let deleteLeads = await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid } );
+                let deleteLeads = await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery } );
 
                 if ( deleteLeads.deletedCount > 0 ) {
-                    Logger.debug( `Deleted total leads : ${deleteLeads.deletedCount} from main broadcast for lead group : ${lead_group_uuid} \n` );
+                    Logger.debug( `Deleted total leads : ${deleteLeads.deletedCount} from main broadcast for lead group(s) : ${lgUuids.join( ', ' )} \n` );
                 } else {
-                    Logger.error( `Unable to delete leads from main broadcast for lead group : ${lead_group_uuid} REASON == Data not exist that satisy where condition\n` );
+                    Logger.error( `Unable to delete leads from main broadcast for lead group(s) : ${lgUuids.join( ', ' )} REASON == Data not exist that satisfy where condition\n` );
                 }
 
                 await this.main_broadcast_queue.insertMany( fetchLeads, { ordered: false } );
 
                 let lastElement: any = fetchLeads[ fetchLeads.length - 1 ];
                 lastElement = lastElement.count;
-                let result = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid, count: { "$lte": lastElement } } );
+                let result = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, count: { "$lte": lastElement } } );
                 Logger.debug( `Deleted leads count from lead broadcast ===== count : ${result.deletedCount} \n` );
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, `Lead reset successfully` );
             } else {
@@ -396,15 +433,25 @@ export class VoiceBroadcastService implements OnModuleInit {
 
         //Check role type
         let { role, tenant_uuid } = queryParams;
-        if ( role == "tenant" ) {
-            checkRole = { campaign_uuid, tenant_uuid };
+
+        let vbData = await this.voice_broadcast.findOne( { uuid: campaign_uuid }, { lead_group_uuid: 1 } ).exec();
+        let vbLgUuids = this.getLeadGroupUuids( vbData?.lead_group_uuid );
+
+        let whereConditions: any[] = [ { campaign_uuid } ];
+        if ( vbLgUuids.length > 0 ) {
+            whereConditions.push( { uuid: { $in: vbLgUuids } } );
         }
 
-        result = await this.lead_group.find( { $and: [ checkRole ] }, { uuid: 1, _id: 0, name: 1, status: 1 } ).limit( perPage ).skip( skip ).sort( { _id: -1 } ).exec();
+        let whereQuery: any = { $or: whereConditions };
+        if ( role == "tenant" && tenant_uuid ) {
+            whereQuery = { $and: [ { tenant_uuid }, { $or: whereConditions } ] };
+        }
+
+        result = await this.lead_group.find( whereQuery, { uuid: 1, _id: 0, name: 1, status: 1 } ).limit( perPage ).skip( skip ).sort( { _id: -1 } ).exec();
 
         //Do query for count only when result greater than 0
         if ( result.length > 0 ) {
-            totalCount = await this.lead_group.find( { $and: [ checkRole ] } ).count().exec();
+            totalCount = await this.lead_group.find( whereQuery ).count().exec();
             //Get total count & queue count for each lead group
             leadTabData = await this.getVoiceBroadcastTotalAndQueueCountByLeadGroup( result );
         } else {
@@ -458,16 +505,27 @@ export class VoiceBroadcastService implements OnModuleInit {
         let self = this;
         return new Promise( async function ( resolve, reject ) {
             allData = result.map( async ( data ) => {
-                let result = await self.outbound_campaign_diallable_status.find( { $and: [ { $or: [ { tenant_uuid }, { outbound_campaign_uuid: campaign_uuid } ] }, { $and: [ { outbound_campaign_uuid: campaign_uuid }, { $or: [ { disposition_uuid: data.lead_status }, { outbound_campaign_disposition_uuid: data.lead_status } ] } ] } ] } ).count().exec();
-                if ( result > 0 ) {
+                if ( !data.lead_status || data.lead_status === "NEW" ) {
                     data.lead_management_uuid = data.lead_management_uuid;
                     data.lead_group_uuid = data.lead_group_uuid;
-                    await self.lead_management.updateOne({lead_management_uuid:data.lead_management_uuid},{$set:{retries_count:0}}).exec();
+                    await self.lead_management.updateOne( { lead_management_uuid: data.lead_management_uuid }, { $set: { retries_count: 0 } } ).exec();
+                    return data;
+                }
+                let resCount = await self.outbound_campaign_diallable_status.find( {
+                    $and: [
+                        { $or: [ { tenant_uuid }, { outbound_campaign_uuid: campaign_uuid } ] },
+                        { $and: [ { outbound_campaign_uuid: campaign_uuid }, { $or: [ { disposition_uuid: data.lead_status }, { outbound_campaign_disposition_uuid: data.lead_status } ] } ] }
+                    ]
+                } ).count().exec();
+                if ( resCount > 0 ) {
+                    data.lead_management_uuid = data.lead_management_uuid;
+                    data.lead_group_uuid = data.lead_group_uuid;
+                    await self.lead_management.updateOne( { lead_management_uuid: data.lead_management_uuid }, { $set: { retries_count: 0 } } ).exec();
                     return data;
                 }
             } );
             result = await Promise.all( allData );
-            resolve( result );
+            resolve( result.filter( Boolean ) );
         } );
     }
 
@@ -576,18 +634,73 @@ export class VoiceBroadcastService implements OnModuleInit {
 
     async initiateBroadcastCalls ( voiceBroadcastUUID, tenant_uuid, endDate, channel, caller_id, outgoingRulesDetails, amd, caller_id_type,skip ) {
         try {
-            let leadgroupData = await this.lead_group.findOne( { campaign_uuid: voiceBroadcastUUID }, { uuid: 1, _id: 0 } ).exec();
+            let vbData = await this.voice_broadcast.findOne( { uuid: voiceBroadcastUUID }, { lead_group_uuid: 1 } ).exec();
+            let vbLgUuids = this.getLeadGroupUuids( vbData?.lead_group_uuid );
 
-            const { uuid } = leadgroupData;
+            let leadgroupData = await this.lead_group.find( { $or: [ { campaign_uuid: voiceBroadcastUUID }, ...( vbLgUuids.length > 0 ? [ { uuid: { $in: vbLgUuids } } ] : [] ) ] }, { uuid: 1, _id: 0 } ).exec();
+
+            let allLgUuids = Array.from( new Set( [ ...vbLgUuids, ...leadgroupData.map( lg => String( lg.uuid ) ) ] ) );
+
+            // Ensure queue has leads populated for ALL selected lead groups
+            await this.ensureQueuePopulatedForAllLeadGroups( voiceBroadcastUUID, tenant_uuid, allLgUuids );
 
             let delayValue = Math.floor( 60 / channel );
             delayValue = delayValue * 1000;
             Logger.debug( `BroadcastUUID : ${voiceBroadcastUUID} Sending calls with delay : ${delayValue / 1000} SECONDS \n` );
 
             Logger.verbose( `Voice broadcasting started successfully...... : BroadcastUUID : ${voiceBroadcastUUID} \n` );
-            this.startSendingCalls( channel, delayValue, endDate, tenant_uuid, voiceBroadcastUUID, caller_id, uuid, outgoingRulesDetails, amd, caller_id_type,skip );
+            this.startSendingCalls( channel, delayValue, endDate, tenant_uuid, voiceBroadcastUUID, caller_id, allLgUuids, outgoingRulesDetails, amd, caller_id_type,skip );
         } catch ( error: any ) {
             Logger.error( `Error in catch block`, error.message );
+        }
+    }
+
+    async ensureQueuePopulatedForAllLeadGroups ( voiceBroadcastUUID: string, tenant_uuid: string, allLgUuids: any[] ) {
+        if ( !allLgUuids || allLgUuids.length === 0 ) return;
+
+        let missingLgUuids: string[] = [];
+        for ( const lgUuid of allLgUuids ) {
+            const mainCount = await this.main_broadcast_queue.countDocuments( { tenant_uuid, lead_group_uuid: lgUuid } );
+            const queueCount = await this.lead_broadcast_queue.countDocuments( { tenant_uuid, lead_group_uuid: lgUuid } );
+            if ( mainCount === 0 && queueCount === 0 ) {
+                missingLgUuids.push( lgUuid );
+            }
+        }
+
+        if ( missingLgUuids.length > 0 ) {
+            Logger.log( `Populating missing lead groups in queue for broadcast ${voiceBroadcastUUID}: ${missingLgUuids.join( ', ' )}` );
+            let result = await this.lead_management.find( {
+                lead_group_uuid: { $in: missingLgUuids },
+                tenant_uuid,
+                in_dnc: "1"
+            }, { lead_management_uuid: 1, lead_group_uuid: 1, lead_status: 1, _id: 0 } ).exec();
+
+            if ( result && result.length > 0 ) {
+                let allLeads: any = await this.addAllLeadsInQueue( result, tenant_uuid, voiceBroadcastUUID );
+                let obj = {}, allLeadsArr = [], count = 0;
+                ( allLeads || [] ).forEach( ( data: any ) => {
+                    if ( data != undefined ) {
+                        count++;
+                        obj = { lead_management_uuid: data.lead_management_uuid, tenant_uuid, count, lead_group_uuid: data.lead_group_uuid };
+                        allLeadsArr.push( obj );
+                    }
+                } );
+                if ( allLeadsArr.length > 0 ) {
+                    await this.lead_broadcast_queue.insertMany( allLeadsArr );
+                    Logger.debug( `Populated ${allLeadsArr.length} leads in lead broadcast queue for missing lead groups: ${missingLgUuids.join( ', ' )}` );
+
+                    let lgQuery: any = allLgUuids.length > 1 ? { $in: allLgUuids } : allLgUuids[ 0 ];
+                    let mainQueueCount = await this.main_broadcast_queue.countDocuments( { tenant_uuid, lead_group_uuid: lgQuery } );
+                    if ( mainQueueCount < 100 ) {
+                        let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).limit( 100 - mainQueueCount ).exec();
+                        if ( fetchLeads.length > 0 ) {
+                            await this.main_broadcast_queue.insertMany( fetchLeads, { ordered: false } );
+                            const fetchedUuids = fetchLeads.map( ( l: any ) => l.uuid );
+                            await this.lead_broadcast_queue.deleteMany( { tenant_uuid, uuid: { $in: fetchedUuids } } );
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -623,19 +736,22 @@ export class VoiceBroadcastService implements OnModuleInit {
         const endMinutes = end.getHours() * 60 + end.getMinutes();
         const isWithinTimeWindow = nowMinutes < endMinutes;
 
+        let lgUuids = this.getLeadGroupUuids( lead_group_uuid );
+        let lgQuery: any = lgUuids.length > 1 ? { $in: lgUuids } : ( lgUuids[ 0 ] || lead_group_uuid );
+
         try {
             if ( now < end && isWithinTimeWindow) {
             // if ( end_date > currentDateTime ) {
 
                 if ( this.allBroadcastDatas[ voiceBroadcastUUID ] == undefined || this.allBroadcastDatas[ voiceBroadcastUUID ].length == 0 ) {
                     let populateFields = [ { path: "lead_details", select: "-_id first_name last_name phone_number custom_phone_number lead_management_uuid" } ];
-                    mainBroadcastData = await this.main_broadcast_queue.find( { tenant_uuid, lead_group_uuid } ).populate( populateFields ).limit( 100 ).exec();
+                    mainBroadcastData = await this.main_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).populate( populateFields ).limit( 100 ).exec();
 
                     if ( mainBroadcastData.length == 0 ) {
                         Logger.warn( `No data found in main broadcast, fetching from lead broadcast \n` );
-                        mainBroadcastData = await this.fetchNext100Leads( tenant_uuid, lead_group_uuid );
+                        mainBroadcastData = await this.fetchNext100Leads( tenant_uuid, lgQuery );
                         if ( mainBroadcastData == null ) {
-                            Logger.error( `No data found in lead broadcast ==> lead_group_uuid : ${lead_group_uuid} & tenant_uuid : ${tenant_uuid} , so broadcast : ${voiceBroadcastUUID} has been ended!! \n` );
+                            Logger.error( `No data found in lead broadcast ==> lead_group_uuid : ${JSON.stringify(lead_group_uuid)} & tenant_uuid : ${tenant_uuid} , so broadcast : ${voiceBroadcastUUID} has been ended!! \n` );
                             /*let response = await this.voice_broadcast.updateOne({ uuid: voiceBroadcastUUID }, { broadcast_status: "3" }, { $upsert: true }).exec();
 
                             if (response.modifiedCount > 0) {
@@ -710,7 +826,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                 //Push all sent calls from particular broadcast
                 let data = this.totalCallSent.find( x => x.broadcastUUID == voiceBroadcastUUID );
                 if ( data ) {
-                    data.count = parseInt( data.count ) + channel;
+                    data.count = Number.parseInt( data.count ) + channel;
                 } else {
                     this.totalCallSent.push( {
                         count: deleteLeads.length,
@@ -725,7 +841,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
 
                 Logger.log( `COUNT_DETAILS`, this.totalCallSent );
                 //Delete lead from main_broadcast_queue
-                await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid, uuid: { $in: deleteLeads } } );
+                await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, uuid: { $in: deleteLeads } } );
                 Logger.verbose( `${channel} calls sent successfully with delay of : ${delayValue / 1000} seconds , sending next ${channel} calls if & only if broadcast status not equal to STOP or broadcast not ended \n` );
 
                 let broadcastStatus = await this.checkBroadcastStatus( voiceBroadcastUUID );
@@ -787,18 +903,19 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
 
     async fetchNext100Leads ( tenant_uuid, lead_group_uuid ) {
         let populateFields = [ { path: "lead_details", select: "-_id first_name last_name phone_number custom_phone_number lead_management_uuid" } ];
-        let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid } ).limit( 100 ).exec();
+        let lgUuids = this.getLeadGroupUuids( lead_group_uuid );
+        let lgQuery: any = lgUuids.length > 1 ? { $in: lgUuids } : ( lgUuids[ 0 ] || lead_group_uuid );
+        let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).limit( 100 ).exec();
         if ( fetchLeads.length > 0 ) {
             Logger.debug( `Fetched 100 leads from lead broadcast queue , so deleting 100 records from lead broadcast queue \n` );
 
             await this.main_broadcast_queue.insertMany( fetchLeads, { ordered: false } );
 
-            let lastElement: any = fetchLeads[ fetchLeads.length - 1 ];
-            lastElement = lastElement.count;
-            let result = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid, count: { "$lte": lastElement } } );
+            const fetchedUuids = fetchLeads.map( ( l: any ) => l.uuid );
+            let result = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, uuid: { $in: fetchedUuids } } );
             Logger.debug( `Deleted leads from lead broadcast ===== count : ${result.deletedCount} \n` );
             Logger.log( `Next 100 leads fetched successfully` );
-            let final_leads = await this.main_broadcast_queue.find( { tenant_uuid, lead_group_uuid } ).populate( populateFields ).limit( 100 ).exec();
+            let final_leads = await this.main_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).populate( populateFields ).limit( 100 ).exec();
             return final_leads;
         } else {
             Logger.error( `Unable to fetch 100 leads for lead broadcast queue with tenant : ${tenant_uuid} \n` );
@@ -1055,11 +1172,21 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
         const { lead_group_uuid, tenant_uuid, campaign_uuid } = deleteLeadGroupDto;
         try {
             let response = await this.lead_group.updateOne( { uuid: lead_group_uuid, tenant_uuid, campaign_uuid }, { campaign_uuid: "" } );
+            await this.lead_management.updateMany( { lead_group_uuid, tenant_uuid }, { campaign_uuid: "" } );
             let result = await this.lead_broadcast_queue.deleteMany( { campaign_uuid, lead_group_uuid } ).exec();
+            await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid } ).exec();
+
+            let vb = await this.voice_broadcast.findOne( { uuid: campaign_uuid } ).exec();
+            if ( vb?.lead_group_uuid ) {
+                let currentLgs = this.getLeadGroupUuids( vb.lead_group_uuid );
+                let updatedLgs = currentLgs.filter( id => id !== lead_group_uuid );
+                await this.voice_broadcast.updateOne( { uuid: campaign_uuid }, { lead_group_uuid: updatedLgs } );
+            }
+
             if ( result.deletedCount > 0 ) {
                 Logger.debug( `Deleted leads with lead_group : ${lead_group_uuid} & campaign : ${campaign_uuid} == Total count : ${result.deletedCount}` );
             }
-            if ( response.modifiedCount > 0 ) {
+            if ( response.modifiedCount > 0 || vb?.lead_group_uuid ) {
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, "Lead group deleted successfully from campaign" );
             } else {
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, "Unable to delete lead group" );

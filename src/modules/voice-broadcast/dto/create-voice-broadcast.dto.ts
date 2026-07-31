@@ -107,6 +107,9 @@ export class CreateVoiceBroadcastDto {
 
     @ApiProperty()
     @IsOptional()
-    skip: string
+    lead_group_uuid: any;
 
+    @ApiProperty()
+    @IsOptional()
+    skip: string
 }
