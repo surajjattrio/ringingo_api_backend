@@ -157,7 +157,7 @@ export class GoogleSheetService {
         return this.lead_group.create(LeadGroupDtoWithDefaults);
     }
 
-    private async saveRowToDatabase(row: any[], sheetDate: string, leadGroupUuid: string, campaignUuid: string, tenantUuid: string): Promise<boolean> {
+    private async saveRowToDatabase(row: any[], sheetDate: string, leadGroupUuid: string, campaignUuid: string, tenantUuid: string, processedPhonesInGroup?: Set<string>): Promise<boolean> {
         try {
             const toDate = (v: any) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d; };
             const toNumber = (v: any) => {
@@ -167,7 +167,8 @@ export class GoogleSheetService {
             };
 
             const token = row[2];
-            const phone_number = row[13];
+            // Clean primary phone number (row[1]) or fall back to mobile number (row[13])
+            const phone_number = row[1]?.replace(/^(\+91|91)/, '').trim() || row[13] || null;
 
             // Check for duplicates
             // if (token) {
@@ -189,7 +190,15 @@ export class GoogleSheetService {
             //     }
             // }
 
+            // Prevent duplicate records within the same Lead Group (same Date & Phone combination)
             if (phone_number) {
+                // 1. In-batch duplicate check for current Lead Group
+                if (processedPhonesInGroup?.has(phone_number)) {
+                    console.log(`[GoogleSheetService] Duplicate skipped (in-batch) — lead_group_uuid=${leadGroupUuid}, phone_number=${phone_number}`);
+                    return false;
+                }
+
+                // 2. Database duplicate check for current Lead Group
                 const leadExists = await this.lead_management.findOne({ 
                     lead_group_uuid: leadGroupUuid,
                     campaign_uuid: campaignUuid,
@@ -214,8 +223,9 @@ export class GoogleSheetService {
             }
 
             // ✅ Compare against sheetDate, not todayStr
-            if (orderPlace === 'Yes' || orderTimeStr === sheetDate) {
-                console.log('[GoogleSheetService] Skipped due to orderPlace/orderTime condition', { orderPlace, orderTimeStr, sheetDate });
+            // Validation based on Column J: If "Yes", corresponding Phone Number should not be uploaded into Lead Group
+            if (orderPlace === 'Yes' || orderPlace.toLowerCase() === 'yes' || orderTimeStr === sheetDate) {
+                console.log('[GoogleSheetService] Skipped due to orderPlace/orderTime condition', { phone_number, orderPlace, orderTimeStr, sheetDate });
                 return false;
             }
 
@@ -288,6 +298,11 @@ export class GoogleSheetService {
 
             // await this.googleSheetModel.create(payload);
             await this.leadManagementService.createNewLeadWithoutReset(payload);
+
+            // Record inserted phone number in-memory for current Lead Group batch duplicate prevention
+            if (phone_number && processedPhonesInGroup) {
+                processedPhonesInGroup.add(phone_number);
+            }
 
             return true;
         } catch (err: any) {
@@ -380,9 +395,12 @@ export class GoogleSheetService {
         const campaignUuid = leadGroup.campaign_uuid.toString();
         const tenantUuid = leadGroup.tenant_uuid.toString();
 
+        // In-memory set to track uploaded phone numbers for the current Lead Group batch
+        const processedPhonesInGroup = new Set<string>();
+
         let saved = 0;
         for (const { row, sheetDate: sd } of parsedRows) {
-            const ok = await this.saveRowToDatabase(row, sd, leadGroupUuid, campaignUuid, tenantUuid);
+            const ok = await this.saveRowToDatabase(row, sd, leadGroupUuid, campaignUuid, tenantUuid, processedPhonesInGroup);
             if (ok) saved++;
         }
 
