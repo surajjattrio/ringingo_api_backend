@@ -470,7 +470,7 @@ export class AgentCallCenterService {
              * Priority Lead Assignment
              * For specific tenant: f20b1a37-6234-4151-9a71-b2f99f1578fd
              * --------------------------------- */
-            if (tenant_uuid === "f20b1a37-6234-4151-9a71-b2f99f1578fd" && agent_uuid) {
+            if ((tenant_uuid === "f20b1a37-6234-4151-9a71-b2f99f1578fd" || tenant_uuid === "ffff844d-4324-4314-9755-fe1dc54a16f9" )&& agent_uuid) {
                 const priorityQuery = { ...query, assigned_agent_uuid: agent_uuid };
                 Logger.debug(`Searching for priority lead for agent ${agent_uuid}`);
                 result = await this.leads_in_queue.findOneAndUpdate(priorityQuery, { $set: { lead_sent: "0", updatedAt: new Date() } }, { sort: { _id: 1 }, returnDocument: "after" }).populate(populateFields).exec();
