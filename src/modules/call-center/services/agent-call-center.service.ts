@@ -1897,22 +1897,27 @@ return uniqueIds;
             const { uuid, login_status, date, date_time } = agentLoginLogoutReportDto;
             let getPreviousEntryOfAgent = await this.agent_login_logout_report.findOne({ agent_uuid: uuid }).sort({ _id: -1 }).exec();
             console.log(getPreviousEntryOfAgent);
+
+            if (getPreviousEntryOfAgent?.login_status === '0' && login_status === '0') {
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Agent status already updated to 0");
+            }
+
             let currentDateTime = new Date();
             agentLoginLogoutReportDto.agent_uuid = uuid;
             agentLoginLogoutReportDto.date = await this.commonFn.getTodayDate();
-            let utCDate = new Date().toISOString();
+            let utCDate = agentLoginLogoutReportDto.date_time ? agentLoginLogoutReportDto.date_time : new Date().toISOString();
             agentLoginLogoutReportDto.date_time = utCDate;
 
 
             if (login_status == "0" && agentLoginLogoutReportDto.breakcode_uuid == undefined) {
                 let getFollowup = await this.follow_up.find({ user_uuid: uuid, is_readed: "0" }).exec();
                 let currentDateTime = new Date();
-                for (let i = 0; i < getFollowup.length; i++) {
-                    let followupDateTime = new Date(getFollowup[i].reminder_date_time.toString());
+                for (const followup of getFollowup) {
+                    let followupDateTime = new Date(followup.reminder_date_time.toString());
                     if (followupDateTime <= currentDateTime) {
                         // Update is_readed to '1'
-                        await this.follow_up.updateOne({ _id: getFollowup[i]._id }, { $set: { is_readed: '1' } }).exec();
-                        console.log("Updated is_readed for follow-up with id: " + getFollowup[i]._id);
+                        await this.follow_up.updateOne({ _id: followup._id }, { $set: { is_readed: '1' } }).exec();
+                        console.log("Updated is_readed for follow-up with id: " + followup._id);
                     }
                 }
             }
