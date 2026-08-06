@@ -779,7 +779,21 @@ export class AgentCallCenterService {
                             then: body.user_uuid,
                             else: "$user_uuid"
                         }
-                    }
+                    },
+                    // Time difference in seconds between current time and call_end
+                    acw_time: {
+                        $dateDiff: {
+                            startDate: {
+                                $dateFromString: {
+                                    dateString: "$callend",
+                                    format: "%Y-%m-%d %H:%M:%S",
+                                    timezone: "Asia/Kolkata"
+                                }
+                            },
+                            endDate: "$$NOW",
+                            unit: "second"
+                        }
+                    },
                 }
             }],
             { sort: { _id: -1 }, new: true }
@@ -1355,7 +1369,7 @@ export class AgentCallCenterService {
 
                 Logger.verbose(JSON.stringify(leadDetails), "Started originating call to ==> ");
 
-		        // Trunk failover: resolve Failover Trunk 1/2 gateway names + their DIDs (if configured on the matched outgoing rule)
+                // Trunk failover: resolve Failover Trunk 1/2 gateway names + their DIDs (if configured on the matched outgoing rule)
                 const failoverTrunk1Name = trunkDetails?.matchedRule?.failover_trunk_1_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_1_uuid }, { name: 1, _id: 0 }).exec() : null;
                 const failoverTrunk2Name = trunkDetails?.matchedRule?.failover_trunk_2_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_2_uuid }, { name: 1, _id: 0 }).exec() : null;
                 const trunkParam = {
@@ -1687,7 +1701,7 @@ return uniqueIds;
             if (prepend != "" && strip != undefined) {
                 lead_number = prepend.concat(lead_number);
             }
-	        return { lead_number, trunk_uuid: trunkDetails?.trunk_uuid?.trunk_uuid, matchedRule: trunkDetails?.trunk_uuid }
+            return { lead_number, trunk_uuid: trunkDetails?.trunk_uuid?.trunk_uuid, matchedRule: trunkDetails?.trunk_uuid }
         }
     }
 
