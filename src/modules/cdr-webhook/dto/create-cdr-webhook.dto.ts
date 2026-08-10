@@ -77,6 +77,11 @@ export class CreateCdrWebhookDto {
   @IsObject()
   transform_template: Record<string, any>;
 
+  @ApiProperty({ default: "custom", enum: ["default", "custom"]})
+  @IsOptional()
+  @IsIn(["default", "custom"])
+  mapping_mode: string;
+
   @ApiProperty({ default: false })
   @IsOptional()
   @IsBoolean()
