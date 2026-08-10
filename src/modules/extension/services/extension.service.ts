@@ -27,9 +27,9 @@ export class ExtensionService {
     */
 
     constructor(
-        @InjectModel( "extension" ) private readonly extensions: Model<ExtensionDocument>,
-        @InjectModel( TenantSchema.name ) private readonly tenant: Model<TenantDocument>,
-        @InjectModel( SipProfileSchema.name ) private readonly sip_profile: Model<SipProfileDocument>,
+        @InjectModel("extension") private readonly extensions: Model<ExtensionDocument>,
+        @InjectModel(TenantSchema.name) private readonly tenant: Model<TenantDocument>,
+        @InjectModel(SipProfileSchema.name) private readonly sip_profile: Model<SipProfileDocument>,
         private readonly commonFn: CommonFunctions,
         private readonly commonDbFn: CommonDBFunctions,
     ) { }
@@ -40,34 +40,34 @@ export class ExtensionService {
     @return Object         : Success / Error
     */
 
-    async create ( createExtensionDto: CreateExtensionDto ) {
+    async create(createExtensionDto: CreateExtensionDto) {
 
         const { username, tenant_uuid, role, parent_uuid } = createExtensionDto;
-        let where = [ { username, tenant_uuid } ];
+        let where = [{ username, tenant_uuid }];
         let decodePassword = createExtensionDto.password;
-        createExtensionDto.password = this.commonFn.encode( createExtensionDto.password );
+        createExtensionDto.password = this.commonFn.encode(createExtensionDto.password);
         let logMessages = {
             logErrorMsg: "SIP device already exist \n",
             logSuccessMsg: "SIP device created successfully \n"
         }
-        const result = await this.commonDbFn.findAndInsert( this.extensions, where, createExtensionDto, JSON.stringify( logMessages ), "and", true );
-        if ( result.statusCode == 201 ) {
-            if ( process.env.OPENSIPS === 'YES' ) {
+        const result = await this.commonDbFn.findAndInsert(this.extensions, where, createExtensionDto, JSON.stringify(logMessages), "and", true);
+        if (result.statusCode == 201) {
+            if (process.env.OPENSIPS === 'YES') {
                 try {
                     const last_uuid = result.message.uuid;
-                    const  callerIdName =result.message.caller_id_name;
-                    const  callerIdNumber =result.message.caller_id_number;
-                    const  user_uuid =result.message.user_uuid;
-		 let tenantData: any = await this.tenant.findOne( { uuid: tenant_uuid }, { domain: 1, _id: 0 } ).exec();
-        let domain = tenantData?.domain;
-              //  const [result] = await (await connection).query('INSERT INTO subscriber (username, domain, password, email_address, ha1, ha1_sha256, ha1_sha512t256, rpid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-               // [username,'Domain', decodePassword, 'anajli', 'abc', 'abc', 'abc', null]);
-	// const [insertResult] = await (await connection).query(
-    // 'INSERT INTO subscriber (username, domain, password, email_address, ha1, ha1_sha256, ha1_sha512t256, rpid, tenant_uuid, user_uuid, extension_uuid, effective_caller_id_name, effective_caller_id_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    // [username, domain, decodePassword, 'anajli', 'abc', 'abc', 'abc', null, tenant_uuid, user_uuid,last_uuid, callerIdName, callerIdNumber]
-    // );
-                } catch ( err ) {
-                    console.error( 'Error inserting data:', err );
+                    const callerIdName = result.message.caller_id_name;
+                    const callerIdNumber = result.message.caller_id_number;
+                    const user_uuid = result.message.user_uuid;
+                    let tenantData: any = await this.tenant.findOne({ uuid: tenant_uuid }, { domain: 1, _id: 0 }).exec();
+                    let domain = tenantData?.domain;
+                    //  const [result] = await (await connection).query('INSERT INTO subscriber (username, domain, password, email_address, ha1, ha1_sha256, ha1_sha512t256, rpid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    // [username,'Domain', decodePassword, 'anajli', 'abc', 'abc', 'abc', null]);
+                    // const [insertResult] = await (await connection).query(
+                    // 'INSERT INTO subscriber (username, domain, password, email_address, ha1, ha1_sha256, ha1_sha512t256, rpid, tenant_uuid, user_uuid, extension_uuid, effective_caller_id_name, effective_caller_id_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    // [username, domain, decodePassword, 'anajli', 'abc', 'abc', 'abc', null, tenant_uuid, user_uuid,last_uuid, callerIdName, callerIdNumber]
+                    // );
+                } catch (err) {
+                    console.error('Error inserting data:', err);
                     //return null;
                 }
             }
@@ -79,7 +79,7 @@ export class ExtensionService {
                 mail_to: "",
                 attach_file: ""
             };
-            this.generateTenantXml( createExtensionDto, decodePassword, result.message.uuid, voicemail );
+            this.generateTenantXml(createExtensionDto, decodePassword, result.message.uuid, voicemail);
         }
         // delete result.message;
         return result;
@@ -97,14 +97,14 @@ export class ExtensionService {
         let checkRole: any = {};
         let searchFields = ["username", "device_name"];
         let populateFields = [
-            { path: "user", select: "username email" },
+            { path: "user", select: "username fullname email" },
             { path: "tenant", select: "tenant_name username domain" },
         ];
         const perPage = Number(queryParams.limit) || 10;
         const currentPage = Number(queryParams.page) || 1;
         const skip = perPage * (currentPage - 1);
         let pagination = true, queryResponse, totalCount = 0;
-    
+
         // Check search parameters
         if (queryParams.search) {
             searchFields.forEach((field) => {
@@ -112,29 +112,29 @@ export class ExtensionService {
             });
             query = { $or: searchParams };
         }
-    
+
         // Determine pagination based on query parameters
         if (!queryParams.limit && !queryParams.page || queryParams.list === "all") {
             pagination = false;
         }
-    
+
         // Check Role
         let { role, uuid, tenant_uuid, assigned_manager_role } = loggedInUserDetails;
         console.log("extension findAll role", role);
-    
+
         // Handle different roles
         if (role === "tenant") {
             checkRole = { tenant_uuid: uuid };
         }
-    
+
         if (role === "agent") {
             checkRole = { tenant_uuid, uuid: { $ne: queryParams.extension_uuid } };
         }
-    
+
         if (role === "manager") {
             showAssignedListToManager = await this.commonDbFn.getManagerRoleInfo(assigned_manager_role, queryParams.module);
         }
-    
+
         // Determine query response based on pagination and role
         if (pagination) {
             if (role === "manager") {
@@ -186,7 +186,7 @@ export class ExtensionService {
                 }
             }
         }
-    
+
         // Get total count for pagination
         if (pagination) {
             if (role === "manager") {
@@ -201,19 +201,19 @@ export class ExtensionService {
                     .exec();
             }
         }
-    
+
         // Get all sip profiles
         let sipProfiles = await this.sip_profile
             .find({}, { name: 1, _id: 0 })
             .sort({ _id: -1 })
             .exec();
-    
+
         // Parse XML response
-        console.log("queryResponse",queryResponse);
-        console.log("sipProfiles",sipProfiles);
+        // console.log("queryResponse",queryResponse);
+        // console.log("sipProfiles",sipProfiles);
 
         let result: any = await this.parseXML(queryResponse, sipProfiles);
-    
+
         // Process the response data
         let finalArray: any[] = [];
         for (let data of queryResponse) {
@@ -221,13 +221,13 @@ export class ExtensionService {
             let checkIfExist = result.filter(
                 (e) => e.username === data.username && e.domain === tenantDomain
             );
-    
+
             if (checkIfExist.length === 1) {
                 data.extension_status = "0";
             }
             finalArray.push(data);
         }
-    
+
         // Send response
         return this.commonDbFn.sendResponseWithCount(
             queryResponse.length > 0 ? HttpStatus.OK : HttpStatus.NOT_FOUND,
@@ -235,13 +235,13 @@ export class ExtensionService {
             totalCount
         );
     }
-    
+
     // async findAll ( queryParams, loggedInUserDetails ) {
     //     let searchParams = [], showAssignedListToManager;
     //     let query: any = {};
     //     let checkRole: any = {};
     //     let searchFields = [ "username", "device_name" ];
-    //     let populateFields = [ { path: "user", select: "username email" }, { path: "tenant", select: 'tenant_name username domain' } ];
+    //     let populateFields = [ { path: "user", select: "username fullname email" }, { path: "tenant", select: 'tenant_name username domain' } ];
     //     const perPage = Number( queryParams.limit ) || 10;
     //     const currentPage = Number( queryParams.page ) || 1;
     //     const skip = perPage * ( currentPage - 1 );
@@ -335,7 +335,7 @@ export class ExtensionService {
 
     /*async findAll(queryParams) {
         let searchFields = ["username", "device_name"];
-        let populateFields = [{ path: "user", select: "username email" }, { path: "tenant", select: 'tenant_name username domain' }];
+        let populateFields = [{ path: "user", select: "username fullname email" }, { path: "tenant", select: 'tenant_name username domain' }];
         let response = await this.commonDbFn.findAllWithPagination(this.extensions, queryParams, searchFields, populateFields,"",true,true);
 
         if(response.statusCode == 404){ return response; }
@@ -369,48 +369,49 @@ export class ExtensionService {
     @return Boolean
     */
 
-    async parseXML ( queryResponse, sipProfiles ) {
-        let resLen, res2Len, sipUser, domain, obj = {}, sipDetails = [], i, j, k, finalArray = [], xml, conn, self = this;
-        const parser = new xml2js.Parser( { attrkey: "ATTR" } );
+    async parseXML(queryResponse: any, sipProfiles: any) {
+        let resLen: any, res2Len: any, sipUser: any, domain: any, obj = {}, sipDetails = [], i: any, j: any, k: any, xml: any, conn: any;
+        const parser = new xml2js.Parser({ attrkey: "ATTR" });
         let lenSipProfile = sipProfiles?.length;
-        return new Promise( async function ( resolve, reject ) {
-            conn = await self.commonFn.fetchFsConnection();
+        conn = await this.commonFn.fetchFsConnection();
+        return new Promise(function (resolve, reject) {
             // console.log("::yaksh:: connnnnnn",conn);
             // resolve( "" );
             // conn = new esl.Connection(process.env.FS_HOST, process.env.FS_PORT, process.env.FS_PASSWORD, function () {
-            for ( j = 0; j < lenSipProfile; j++ ) {
-                conn.api( `sofia xmlstatus profile ${sipProfiles[ j ].name} reg`, function ( res ) {
+            for (j = 0; j < lenSipProfile; j++) {
+                conn.api(`sofia xmlstatus profile ${sipProfiles[j].name} reg`, function (res: any) {
                     //res is an esl.Event instance
-                    xml = res?.getBody().trim();
-                    if ( xml !== "Invalid Profile!" ) {
-
-                        parser.parseString( xml, function ( error, result ) {
-                            if ( error === null ) {
-                                let response = JSON.parse( JSON.stringify( result ) );
+                    xml = res?.getBody()?.trim();
+                    if (xml?.startsWith('<') && xml !== "Invalid Profile!") {
+                        parser.parseString(xml, function (error, result) {
+                            if (error === null) {
+                                let response = JSON.parse(JSON.stringify(result));
                                 response = response.profile?.registrations;
                                 resLen = response?.length;
-                                for ( i = 0; i < resLen; i++ ) {
-                                    let val = response[ i ]?.registration;
+                                for (i = 0; i < resLen; i++) {
+                                    let val = response[i]?.registration;
                                     res2Len = val?.length;
-                                    for ( k = 0; k < res2Len; k++ ) {
-                                        sipUser = val[ k ][ "sip-auth-user" ][ 0 ];
-                                        domain = val[ k ][ "sip-auth-realm" ][ 0 ];
+                                    for (k = 0; k < res2Len; k++) {
+                                        sipUser = val[k]["sip-auth-user"][0];
+                                        domain = val[k]["sip-auth-realm"][0];
                                         obj = { username: sipUser, domain: domain }
-                                        sipDetails.push( obj );
+                                        sipDetails.push(obj);
                                     }
                                 }
-                                resolve( sipDetails );
+                                resolve(sipDetails);
                             } else {
-                                reject( error )
-                                console.log( "else", error );
+                                reject(error)
+                                console.log("else", error);
                             }
-                        } );
+                        });
+                    } else {
+                        resolve(sipDetails);
                     }
 
-                } );
+                });
             }
             // });
-        } );
+        });
     }
 
     /*
@@ -421,10 +422,10 @@ export class ExtensionService {
     @return Boolean
     */
 
-    extensionExists ( username, domain, sipDetails ) {
-        return sipDetails.some( function ( el ) {
+    extensionExists(username: string, domain: string, sipDetails: any[]) {
+        return sipDetails.some(function (el) {
             return el.username === username && el.domain === domain;
-        } );
+        });
     }
 
     /*
@@ -433,14 +434,14 @@ export class ExtensionService {
     @return Object  : Result of extension
     */
 
-    async findOne ( uuid: string ) {
-        const extensionExist = await this.extensions.findOne( { uuid } ).exec();
-        if ( extensionExist == null ) {
-            Logger.error( `SIP device not found by uuid : ${uuid} \n`, getMethod ); throw new NotFoundException( { statusCode: HttpStatus.NOT_FOUND, message: "SIP device not found" } )
+    async findOne(uuid: string) {
+        const extensionExist = await this.extensions.findOne({ uuid }).exec();
+        if (extensionExist == null) {
+            Logger.error(`SIP device not found by uuid : ${uuid} \n`, getMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "SIP device not found" })
         }
-        Logger.debug( `SIP device success fetched by uuid : ${uuid} \n` );
-        extensionExist.password = await this.commonFn.decode( extensionExist.password );
-        return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, extensionExist );
+        Logger.debug(`SIP device success fetched by uuid : ${uuid} \n`);
+        extensionExist.password = this.commonFn.decode(extensionExist.password);
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, extensionExist);
 
     }
 
@@ -451,53 +452,53 @@ export class ExtensionService {
     @return Object             : Success / Error
     */
 
-    async update ( uuid: string, createExtensionDto: CreateExtensionDto ) {
+    async update(uuid: string, createExtensionDto: CreateExtensionDto) {
         const { username, tenant_uuid, role, parent_uuid } = createExtensionDto;
-        const getExtensionData = await this.extensions.findOne( { uuid } ).exec();
+        const getExtensionData = await this.extensions.findOne({ uuid }).exec();
         let decodePassword = createExtensionDto.password;
 
-        if ( getExtensionData.username != username ) {
-            const checkUsernameExist = await this.extensions.find( { tenant_uuid, username } ).count().exec();
-            if ( checkUsernameExist > 0 ) {
-                Logger.error( "SIP device already exist \n", putMethod );
-                return this.commonDbFn.sendResponseWithMessage( HttpStatus.CONFLICT, `SIP device already exist` );
+        if (getExtensionData.username != username) {
+            const checkUsernameExist = await this.extensions.find({ tenant_uuid, username }).count().exec();
+            if (checkUsernameExist > 0) {
+                Logger.error("SIP device already exist \n", putMethod);
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `SIP device already exist`);
             }
         }
-        createExtensionDto.password = this.commonFn.encode( createExtensionDto.password );
+        createExtensionDto.password = this.commonFn.encode(createExtensionDto.password);
         //createExtensionDto.tenant_uuid = role == "manager" ? parent_uuid : tenant_uuid;
-        const extensionUpdate = await this.extensions.updateOne( { uuid }, createExtensionDto ).exec();
-        const extensionExist = await this.extensions.findOne( { uuid } ).exec();
+        const extensionUpdate = await this.extensions.updateOne({ uuid }, createExtensionDto).exec();
+        const extensionExist = await this.extensions.findOne({ uuid }).exec();
 
-        if ( extensionUpdate.matchedCount == 0 && extensionUpdate.modifiedCount == 0 ) {
-            Logger.error( `SIP device uuid was incorrect ${uuid} \n`, putMethod );
-            throw new NotFoundException( { statusCode: HttpStatus.NOT_FOUND, message: "SIP device id was incorrect" } )
+        if (extensionUpdate.matchedCount == 0 && extensionUpdate.modifiedCount == 0) {
+            Logger.error(`SIP device uuid was incorrect ${uuid} \n`, putMethod);
+            throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "SIP device id was incorrect" })
         }
-        Logger.debug( `SIP device updated successfully by uuid ${uuid} \n` );
+        Logger.debug(`SIP device updated successfully by uuid ${uuid} \n`);
         createExtensionDto.tenant_uuid = role == "manager" ? parent_uuid : tenant_uuid;
         //Get voicemail
-        const { voicemail } = await this.extensions.findOne( { uuid }, { voicemail: 1, _id: 0 } ).exec();
-        if ( process.env.OPENSIPS === 'YES' ) {
+        const { voicemail } = await this.extensions.findOne({ uuid }, { voicemail: 1, _id: 0 }).exec();
+        if (process.env.OPENSIPS === 'YES') {
             try {
-        let callerIdName = createExtensionDto.caller_id_name;
-        let callerIdNumber = createExtensionDto.caller_id_number;
-        let user_uuid = createExtensionDto.user_uuid;
-	let tenantData: any = await this.tenant.findOne( { uuid: tenant_uuid }, { domain: 1, _id: 0 } ).exec();
-        let domain = tenantData?.domain;
-//         const [result] = await (await connection).query(`
-//     UPDATE subscriber
-//     SET username = ?, domain = ?, password = ?, email_address = ?, ha1 = ?, ha1_sha256 = ?, ha1_sha512t256 = ?, rpid = ?, tenant_uuid = ?, user_uuid = ?,extension_uuid =?, effective_caller_id_name = ?, effective_caller_id_number = ?
-//     WHERE extension_uuid = ?`,
-//     [username, domain, decodePassword, 'anajli', 'abc', 'abc', 'abc', null, tenant_uuid, user_uuid, uuid,callerIdName, callerIdNumber, uuid]
-// );
+                let callerIdName = createExtensionDto.caller_id_name;
+                let callerIdNumber = createExtensionDto.caller_id_number;
+                let user_uuid = createExtensionDto.user_uuid;
+                let tenantData: any = await this.tenant.findOne({ uuid: tenant_uuid }, { domain: 1, _id: 0 }).exec();
+                let domain = tenantData?.domain;
+                //         const [result] = await (await connection).query(`
+                //     UPDATE subscriber
+                //     SET username = ?, domain = ?, password = ?, email_address = ?, ha1 = ?, ha1_sha256 = ?, ha1_sha512t256 = ?, rpid = ?, tenant_uuid = ?, user_uuid = ?,extension_uuid =?, effective_caller_id_name = ?, effective_caller_id_number = ?
+                //     WHERE extension_uuid = ?`,
+                //     [username, domain, decodePassword, 'anajli', 'abc', 'abc', 'abc', null, tenant_uuid, user_uuid, uuid,callerIdName, callerIdNumber, uuid]
+                // );
                 //return result as OkPacket;
-            } catch ( err ) {
-                console.error( 'Error updating data:', err );
+            } catch (err) {
+                console.error('Error updating data:', err);
                 //return null;
             }
         }
 
-        this.generateTenantXml( createExtensionDto, decodePassword, uuid, voicemail );
-        return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, "SIP device updated successfully" );
+        this.generateTenantXml(createExtensionDto, decodePassword, uuid, voicemail);
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "SIP device updated successfully");
     }
 
     /*
@@ -530,16 +531,16 @@ export class ExtensionService {
             logErrorMsg: `SIP device(s) not exist for the provided UUID(s)\n`,
             logSuccessMsg: `SIP device(s) deleted successfully for the provided UUID(s)\n`
         };
-    
+
         // Check if multiple UUIDs are provided
         if (uuid.includes(",")) {
             let uuids: string[] = uuid.split(",");
-    
+
             // Remove extension files for each UUID
             uuids.forEach(async (uuid) => {
                 await this.removeExtensionFile(uuid, domain);
             });
-    
+
             // Check if OPENSIPS environment variable is set to 'YES' for MySQL deletion
             // if (process.env.OPENSIPS === 'YES') {
             //     try {
@@ -558,7 +559,7 @@ export class ExtensionService {
         } else {
             // Remove extension files for single UUID
             await this.removeExtensionFile(uuid, domain);
-    
+
             // Check if OPENSIPS environment variable is set to 'YES' for MySQL deletion
             // if (process.env.OPENSIPS === 'YES') {
             //     try {
@@ -575,11 +576,11 @@ export class ExtensionService {
             //     }
             // }
         }
-    
+
         // If OPENSIPS environment variable is not set to 'YES', delete from MongoDB
         return this.commonDbFn.delete(this.extensions, { uuid }, JSON.stringify(logMessages));
     }
-    
+
 
     /*
     @Usage         : To remove extension file
@@ -588,13 +589,13 @@ export class ExtensionService {
     @return Object : Success / Error
     */
 
-    async removeExtensionFile ( uuid, domain ) {
-        const getExtensionDetail = await this.extensions.findOne( { uuid }, { _id: 0, username: 1, tenant_uuid: 1 } ).exec();
+    async removeExtensionFile(uuid, domain) {
+        const getExtensionDetail = await this.extensions.findOne({ uuid }, { _id: 0, username: 1, tenant_uuid: 1 }).exec();
         const username = getExtensionDetail?.username;
         const path = `${process.env.EXTENSION_DIRECTORY}${username}.${domain}.xml`;
-        fs.unlink( path, ( result ) => {
-            console.log( `Successfully deleted ${username}.${domain}.xml file` );
-        } );
+        fs.unlink(path, (result) => {
+            console.log(`Successfully deleted ${username}.${domain}.xml file`);
+        });
     }
 
     /*
@@ -604,12 +605,12 @@ export class ExtensionService {
     @return Object : Success / Error
     */
 
-    async patch ( uuid: string, body ) {
+    async patch(uuid: string, body) {
         let logMessages = {
             logErrorMsg: `SIP device not found by uuid : ${uuid} \n`,
             logSuccessMsg: `SIP device status updated successfully by uuid : ${uuid} \n`
         }
-        return this.commonDbFn.update( this.extensions, uuid, body, JSON.stringify( logMessages ) );
+        return this.commonDbFn.update(this.extensions, uuid, body, JSON.stringify(logMessages));
     }
 
     /*
@@ -618,9 +619,9 @@ export class ExtensionService {
     @return Object      : Array of an object with total count of extension with data
     */
 
-    async advancedSearch ( searchParams ) {
-        let populateFields = [ { path: "user", select: "username email" }, { path: "tenant", select: 'tenant_name username' } ];
-        return this.commonDbFn.advancedSearch( this.extensions, searchParams, populateFields );
+    async advancedSearch(searchParams) {
+        let populateFields = [{ path: "user", select: "username fullname email" }, { path: "tenant", select: 'tenant_name username' }];
+        return this.commonDbFn.advancedSearch(this.extensions, searchParams, populateFields);
     }
 
     /*
@@ -630,16 +631,16 @@ export class ExtensionService {
     @return Object   : Success / Error
     */
 
-    async updateExtensionOtherFeature ( uuid: string, fieldName, logMessages, key, role, parent_uuid ) {
-        let where = { [ key ]: fieldName };
-        if ( key == "voicemail" ) {
+    async updateExtensionOtherFeature(uuid: string, fieldName, logMessages, key, role, parent_uuid) {
+        let where = { [key]: fieldName };
+        if (key == "voicemail") {
             //Get extension detail
-            const extension = await this.extensions.findOne( { uuid }, { _id: 0, uuid: 1, password: 1, username: 1, caller_id_name: 1, caller_id_number: 1, tenant_uuid: 1, user_uuid: 1 } ).exec();
+            const extension = await this.extensions.findOne({ uuid }, { _id: 0, uuid: 1, password: 1, username: 1, caller_id_name: 1, caller_id_number: 1, tenant_uuid: 1, user_uuid: 1 }).exec();
             extension.tenant_uuid = role == "manager" ? parent_uuid : extension.tenant_uuid;
-            const decodePassword = this.commonFn.decode( extension.password );
-            this.generateTenantXml( extension, decodePassword, extension.uuid, fieldName );
+            const decodePassword = this.commonFn.decode(extension.password);
+            this.generateTenantXml(extension, decodePassword, extension.uuid, fieldName);
         }
-        return this.commonDbFn.update( this.extensions, uuid, where, JSON.stringify( logMessages ) );
+        return this.commonDbFn.update(this.extensions, uuid, where, JSON.stringify(logMessages));
     }
 
     /*
