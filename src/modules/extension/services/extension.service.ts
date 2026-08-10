@@ -373,42 +373,90 @@ export class ExtensionService {
         let resLen: any, res2Len: any, sipUser: any, domain: any, obj = {}, sipDetails = [], i: any, j: any, k: any, xml: any, conn: any;
         const parser = new xml2js.Parser({ attrkey: "ATTR" });
         let lenSipProfile = sipProfiles?.length;
-        conn = await this.commonFn.fetchFsConnection();
+
+        // Safely fetch FreeSWITCH connection
+        try {
+            conn = await this.commonFn.fetchFsConnection();
+        } catch (err) {
+            conn = null;
+        }
+
+        // Return empty sipDetails immediately if no sip profiles exist or FreeSWITCH connection is unavailable to prevent pending Promise hangs
+        if (!lenSipProfile || !conn || typeof conn.api !== 'function') { return sipDetails; }
+
         return new Promise(function (resolve, reject) {
             // console.log("::yaksh:: connnnnnn",conn);
             // resolve( "" );
             // conn = new esl.Connection(process.env.FS_HOST, process.env.FS_PORT, process.env.FS_PASSWORD, function () {
-            for (j = 0; j < lenSipProfile; j++) {
-                conn.api(`sofia xmlstatus profile ${sipProfiles[j].name} reg`, function (res: any) {
-                    //res is an esl.Event instance
-                    xml = res?.getBody()?.trim();
-                    if (xml?.startsWith('<') && xml !== "Invalid Profile!") {
-                        parser.parseString(xml, function (error, result) {
-                            if (error === null) {
-                                let response = JSON.parse(JSON.stringify(result));
-                                response = response.profile?.registrations;
-                                resLen = response?.length;
-                                for (i = 0; i < resLen; i++) {
-                                    let val = response[i]?.registration;
-                                    res2Len = val?.length;
-                                    for (k = 0; k < res2Len; k++) {
-                                        sipUser = val[k]["sip-auth-user"][0];
-                                        domain = val[k]["sip-auth-realm"][0];
-                                        obj = { username: sipUser, domain: domain }
-                                        sipDetails.push(obj);
-                                    }
-                                }
-                                resolve(sipDetails);
-                            } else {
-                                reject(error)
-                                console.log("else", error);
-                            }
-                        });
-                    } else {
-                        resolve(sipDetails);
-                    }
 
-                });
+            let completed = 0;
+            const total = lenSipProfile;
+
+            // Safety fallback timeout to resolve promise after 3 seconds and avoid Gateway Timeout if FreeSWITCH hangs
+            const timeoutId = setTimeout(() => { resolve(sipDetails); }, 3000);
+
+            // Helper to track completion across all SIP profile async requests
+            const checkDone = () => {
+                completed++;
+                if (completed >= total) {
+                    clearTimeout(timeoutId);
+                    resolve(sipDetails);
+                }
+            };
+
+            for (j = 0; j < lenSipProfile; j++) {
+                const profileName = sipProfiles[j]?.name;
+                if (!profileName) {
+                    checkDone();
+                    continue;
+                }
+
+                try {
+                    conn.api(`sofia xmlstatus profile ${profileName} reg`, function (res: any) {
+                        //res is an esl.Event instance
+                        try {
+                            xml = res?.getBody()?.trim();
+                            if (xml?.startsWith('<') && xml !== "Invalid Profile!") {
+                                parser.parseString(xml, function (error, result) {
+                                    if (error === null) {
+                                        try {
+                                            let response = JSON.parse(JSON.stringify(result));
+                                            response = response?.profile?.registrations;
+                                            resLen = response?.length || 0;
+                                            for (i = 0; i < resLen; i++) {
+                                                let val = response[i]?.registration;
+                                                res2Len = val?.length || 0;
+                                                for (k = 0; k < res2Len; k++) {
+                                                    // Safely access sip-auth-user and sip-auth-realm properties
+                                                    sipUser = val[k]?.["sip-auth-user"]?.[0];
+                                                    domain = val[k]?.["sip-auth-realm"]?.[0];
+                                                    if (sipUser && domain) {
+                                                        obj = { username: sipUser, domain: domain };
+                                                        sipDetails.push(obj);
+                                                    }
+                                                }
+                                            }
+                                        } catch (e) {
+                                            console.log("catch inside", e);
+                                        }
+                                        checkDone();
+                                    } else {
+                                        console.log("else", error);
+                                        checkDone();
+                                    }
+                                });
+                            } else {
+                                checkDone();
+                            }
+                        } catch (e) {
+                            console.log("catch middle", e);
+                            checkDone();
+                        }
+                    });
+                } catch (e) {
+                    console.log("catch outside", e);
+                    checkDone();
+                }
             }
             // });
         });
