@@ -140,7 +140,7 @@ export class WebhookService {
             agentFullName,
             disconnectedBy: disconnected_by === "0" ? "Agent" : "Customer",
             recordingPublicLink: recording_path
-                ? (/^https?:\/\//i.test(recording_path) ? recording_path : `https://ccprocessapi.ringingo.com/recordings/download/recording?recording=${recording_path}`)
+                ? (/^https?:\/\//i.test(recording_path) ? recording_path : `https://dialapis.ringingo.com/recordings/download/recording?recording=${recording_path}`)
                 : "",
             dialerUrl: tenant?.[0]?.domain ?? "",
             referenceUuid: _id?.toString() ?? "",
