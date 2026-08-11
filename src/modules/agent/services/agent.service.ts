@@ -61,13 +61,13 @@ export class AgentService {
         let { username, password, tenant_domain, company_code, device_id, callkit_token, apns_token, mobile_type, browserToken, campaign_uuid } = agentDto;
         
         // const commonDomain = process.env.COMMON_LOGIN_DOMAIN;
-        let tenant_uuid: any;
+        let tenantInfo: any;
 
         if (company_code) {
-            tenant_uuid = await this.tenant.find({ company_code }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
-            
+            tenantInfo = await this.tenant.find({ company_code }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
+
             // If company_code is provided but no tenant found, throw specific error
-            if (!tenant_uuid || tenant_uuid.length === 0) {
+            if (!tenantInfo || tenantInfo.length === 0) {
                 Logger.error(`Invalid company code: ${company_code}`);
                 throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Invalid Company Code" });
             }
@@ -76,37 +76,37 @@ export class AgentService {
         //     // Find agent by username globally to find their tenant
         //     const agentInfo = await this.user.findOne({ username }).exec();
         //     if (agentInfo) {
-        //         tenant_uuid = await this.tenant.find({ uuid: agentInfo.tenant_uuid }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
+        //         tenantInfo = await this.tenant.find({ uuid: agentInfo.tenant_uuid }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
         //     } else {
         //         throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter valid credentials" });
         //     }
         // } 
         else {
-            tenant_uuid = await this.tenant.find({ domain: tenant_domain }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
+            tenantInfo = await this.tenant.find({ domain: tenant_domain }, { uuid: 1, sip_profile_uuid: 1, status: 1, time_zone_uuid: 1, concurrent_calls: 1, _id: 0 }).exec();
         }
-        let timezoneUUID = tenant_uuid[0]?.time_zone_uuid;
-        let ccCalls = tenant_uuid[0]?.concurrent_calls;
+        let timezoneUUID = tenantInfo[0]?.time_zone_uuid;
+        let ccCalls = tenantInfo[0]?.concurrent_calls;
 
         //Check domain exist or not (only for domain-based login)
-        if (!company_code && tenant_uuid.length == 0) {
+        if (!company_code && tenantInfo.length == 0) {
             Logger.error(`Please enter valid domain`);
             throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter valid domain" });
         }
 
         //Check tenant status is active or not
-        if (tenant_uuid[0].status == "1") {
-            Logger.error(`Tenant with uuid : ${tenant_uuid[0].uuid} has status inactive`);
+        if (tenantInfo[0].status == "1") {
+            Logger.error(`Tenant with uuid : ${tenantInfo[0].uuid} has status inactive`);
             throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Your account is Inactive/Deleted! Please contact to the administrator" });
         }
 
-        let sipProfileUUID = tenant_uuid[0]?.sip_profile_uuid;
+        let sipProfileUUID = tenantInfo[0]?.sip_profile_uuid;
         let populateFiled = [{ path: "agent_permission", select: "name status pbx_mode call_center_mode call_report login_logout_report recording follow_up sticky_agent number_masking settings breakcode whatsapp instagram facebook sms unallocated_leads agent_script auto_logout idle_timeout callqueue_selection" }, { path: "extension_details", select: "username password recording caller_id_number -_id uuid" }, { path: "tenant", select: "domain -_id -uuid" }]; // yaksh
 
-        let where = [{ username }, { tenant_uuid: tenant_uuid[0]?.uuid }];
+        let where = [{ username }, { tenant_uuid: tenantInfo[0]?.uuid }];
         agent = await this.user.findOne({ $and: where }, { username: 1, uuid: 1, email: 1, password: 1, user_role: 1, user_role_uuid: 1, tenant_uuid: 1, campaign_uuid: 1, default_extension: 1, is_logged_in: 1, is_logged_in_mobile: 1, recording: 1, browserToken: 1, status: 1, manager_uuid: 1, omni_messaging_channel_uuid: 1 }).populate(populateFiled).exec();
 
         if (agent == null) {
-            Logger.error(`User not found by username : ${username} \n`, postMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter valid credentials" })
+            Logger.error(`User not found by username : ${username} \n`, postMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter a correct username" })
         }
         console.log(`🔍 LOGIN ATTEMPT: User ${agent.username} - user_role_uuid: ${agent.user_role_uuid ? 'EXISTS (AGENT)' : 'NOT FOUND (TENANT)'}`);
 
@@ -123,6 +123,13 @@ export class AgentService {
         //Restrict user to login if both PBX and call center mode permission disable.
         if (agent.agent_permission[0].pbx_mode == "1" && agent.agent_permission[0].call_center_mode == "1") {
             Logger.error(`User role not assigned to username : ${username} \n`, postMethod); throw new NotFoundException({ statusCode: HttpStatus.FORBIDDEN, message: "You don't have enough permission to login" });
+        }
+
+        // Verify password before checking logged-in state
+        let decryptPassword = this.commonFn.decode(agent.password);
+        if (decryptPassword !== password) {
+            Logger.error(`Incorrect agent password \n`, postMethod);
+            throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter correct password" });
         }
 
         //For WEB : Restrict user to login if that user is already logged in into another device.
@@ -146,8 +153,6 @@ export class AgentService {
                 }
             }
         }
-        let decryptPassword = this.commonFn.decode(agent.password);
-        if (decryptPassword === password) {
 
             //Check admin has added license or not
             let result: any = await this.licenseExist();
@@ -195,7 +200,7 @@ console.log("agentttttttt",agent)
                 Logger.error(`Timezone not found for user`, error.message);
             }
 
-            const { uuid, tenant_uuid } = agent
+            const { uuid, tenant_uuid } = agent;
             agent.password = decryptPassword;
             let role = "agent";
 
@@ -334,10 +339,6 @@ console.log("agentttttttt",agent)
                     })())
                 }
             };
-
-        } else {
-            Logger.error(`Incorrect agent password \n`, postMethod); throw new NotFoundException({ statusCode: HttpStatus.NOT_FOUND, message: "Please enter valid credentials" })
-        }
     }
 
     /*

@@ -5015,27 +5015,41 @@ return uniqueIds;
 
     async loginPageLogout(data) {
         const { username, domain } = data;
-        const tenant_detail = await this.tenant.findOne({ domain }).exec();
+        let tenant_detail = await this.tenant.findOne({ domain }).exec();
+        if (!tenant_detail && domain) {
+            const domainParts = domain.split('.');
+            if (domainParts.length > 0) {
+                tenant_detail = await this.tenant.findOne({ company_code: domainParts[0].toLowerCase() }).exec();
+            }
+        }
         console.log("tenanntt dateeausdbas", tenant_detail);
         if (!tenant_detail) return { statusCode: 400, data: "Invalid Domain !!!" };
         if (!username) return { statusCode: 400, data: "Invalid Username !!!" };
 
-        const userDetails: any = await this.user.findOne({ username }).exec();
-        // console.log("userDetailsuserDetails",userDetails);
-        await this.user.updateOne({ username, tenant_uuid: tenant_detail?.uuid }, { is_logged_in: "1" }).exec()
-        await this.agent_live_report.updateOne({ agent_name: username }, { status: "6", phone_number: "" }).exec()
+        const tenantUuid = tenant_detail?.tenant_uuid || tenant_detail?.uuid || tenant_detail?._id?.toString();
+
+        const userDetails: any = await this.user.findOne({ username, tenant_uuid: tenantUuid }).exec();
+        await this.user.updateOne({ username, tenant_uuid: tenantUuid }, { is_logged_in: "1" }).exec();
+        await this.agent_live_report.updateOne({ agent_name: username }, { status: "6", phone_number: "" }).exec();
         if (userDetails) {
-            this.socketService.adminLogout(userDetails?.uuid, data)
+            this.socketService.adminLogout(userDetails?.uuid, data);
         }
-        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, 'Agent Logged Out from Login Page Successfully')
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, 'Agent Logged Out from Login Page Successfully');
     }
 
     async forceLoginRole(data) {
-        const { username, domain } = data;
-        const tenant_detail = await this.tenant.findOne({ domain }).exec();
+        const { username, password, domain } = data;
+        let tenant_detail = await this.tenant.findOne({ domain }).exec();
+        if (!tenant_detail && domain) {
+            const domainParts = domain.split('.');
+            if (domainParts.length > 0) {
+                tenant_detail = await this.tenant.findOne({ company_code: domainParts[0].toLowerCase() }).exec();
+            }
+        }
         console.log("tenanntt dateeausdbas", tenant_detail);
         if (!tenant_detail) return { statusCode: 400, data: "Invalid Domain !!!" };
         if (!username) return { statusCode: 400, data: "Invalid Username !!!" };
+        if (!password) { return { statusCode: 400, data: "Password is required !!!" }; }
         const tenantUuid =
             tenant_detail?.tenant_uuid ||
             tenant_detail?.uuid ||
@@ -5046,10 +5060,14 @@ return uniqueIds;
         // 3) Find current user under that tenant_uuid
         const user = await this.user
             .findOne({ username, tenant_uuid: tenantUuid })
-            .select("username tenant_uuid user_role_uuid user_group_uuid uuid")
+            .select("username password tenant_uuid user_role_uuid user_group_uuid uuid")
             .exec();
 
-        if (!user) return { statusCode: 404, data: "User not found !!!" };
+        if (!user) return { statusCode: 404, data: "Invalid username or password !!!" };
+
+        // Check password
+        let decryptPassword = this.commonFn.decode(user.password);
+        if (decryptPassword !== password) { return { statusCode: 401, data: "Invalid username or password !!!" }; }
 
         // 4) Fetch role using user_role_uuid (because forceLogin is NOT in user table)
         let roleDoc = null;
@@ -5065,7 +5083,7 @@ return uniqueIds;
             username: user.username,
             domain: domain,
             force_login: roleDoc?.force_login,
-        })
+        });
     }
     async bulkAgentLogout(userIds: string[]) {
         // Logout users
