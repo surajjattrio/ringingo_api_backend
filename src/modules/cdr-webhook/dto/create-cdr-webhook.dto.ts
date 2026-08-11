@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsNotEmpty,
@@ -103,6 +104,12 @@ export class CreateCdrWebhookDto {
   @IsOptional()
   @IsBoolean()
   stripEmpty: boolean;
+
+  @ApiProperty({ type: [String], required: false, description: "Restrict delivery to these campaign UUIDs; empty/omitted posts for all campaigns" })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  campaign_uuids: string[];
 
   @ApiProperty()
   @IsNotEmpty()
