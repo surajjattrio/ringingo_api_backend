@@ -86,6 +86,9 @@ export class UserRoleSchema {
 
     @Prop({ default: "1" })
     callqueue_selection: String
+
+    @Prop({ default: "1" })
+    bot_lead_info: String
 }
 
 let userRoleSchema = SchemaFactory.createForClass( UserRoleSchema );

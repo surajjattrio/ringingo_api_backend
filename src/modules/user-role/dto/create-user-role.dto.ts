@@ -113,4 +113,10 @@ export class CreateUserRoleDto {
     @IsNumberString()
     @IsIn(["0", "1"])
     callqueue_selection?: string
+
+    @ApiProperty({ description: '0 - Enable | 1 - Disable', default: "1" })
+    @IsOptional()
+    @IsNumberString()
+    @IsIn(["0", "1"])
+    bot_lead_info?: string
 }

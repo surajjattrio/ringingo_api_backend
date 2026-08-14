@@ -569,7 +569,8 @@ export class TenantService {
       agent_script: "1",
       auto_logout: "1",
       idle_timeout: "30",
-      callqueue_selection: "1"
+      callqueue_selection: "1",
+      bot_lead_info: "1"
     }
     let result = new this.user_role(obj);
     result = await result.save();
