@@ -1204,6 +1204,8 @@ export class AgentCallCenterService {
 
     async checkAgentExistInCollection(resumeDto: ResumeDto) {
         let { campaign_uuid, uuid, tenant_uuid, username, campaign_mode, concurrent_calls, role, manager_uuid, domain, campaign_flag } = resumeDto;
+        const traceId = randomUUID().slice(0, 8);
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] RESUME_START campaign=${campaign_uuid} agent=${uuid} tenant=${tenant_uuid} manager=${manager_uuid || "none"} flag=${campaign_flag} mode=${campaign_mode} concurrent=${concurrent_calls}`);
         //Variable declaration
         let allLeads, campaignData, caller_id, i, leadNumber, leadDetails: any = {}, errorInLeads = [], successLeads = [], notAvailableDisposition, autoOriginateDisposition, delayValue;
 
@@ -1220,25 +1222,30 @@ export class AgentCallCenterService {
         console.log('accountcode ============>', account_code);
 
         // Add/Update agent status ==> flag [0 - Available , 1 - Busy , 2 - Break]
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] GET_AGENT_STATUS_START`);
         let agentStatus = await this.getAgentStatus(campaign_uuid, uuid, tenant_uuid, resumeDto);
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] GET_AGENT_STATUS_DONE agentStatus=${agentStatus}`);
 
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] AGENT_COUNT_START`);
         let agentcount = await this.agent_live_report.count({ tenant_uuid: tenant_uuid, campaign_uuid: campaign_uuid, status: { $ne: '6' }, agent_logged_in_time: { '$regex': this.commonFn.getTodayDate(), '$options': 'i' } }).exec();
-        console.log('agent_count =====>', agentcount);
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] AGENT_COUNT_DONE count=${agentcount}`);
 
         //Check leads exist in lead_originate collection[flag in lead_originate 0 - , 1 - Busy, 2 - Available for call]
         //let response = await this.lead_originate.findOne({ campaign_uuid, flag: "0" }).exec();
         //let response = await this.lead_originate.find({ campaign_uuid, flag: "0" }).count().exec();
 
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LIVE_CALLS_START`);
         const liveCallsForTenant: any = await this.getLiveCallsForTenant("", resumeDto);
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LIVE_CALLS_DONE count=${liveCallsForTenant}`);
 
         // let response = await this.lead_originate.find( { campaign_uuid, flag: "0" } ).sort( { _id: -1 } ).exec();
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_ORIGINATE_COUNT_START`);
         let leadcount = await this.lead_originate.count({ campaign_uuid, flag: "0" }).sort({ _id: -1 }).exec();
-        console.log(leadcount);
-        console.log("leadcount=========");
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_ORIGINATE_COUNT_DONE count=${leadcount}`);
 
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_CHECKDATE_START`);
         let leadcheckdate = await this.lead_originate.findOne({ campaign_uuid, flag: "0" }).sort({ _id: -1 }).select('checkdate').exec();
-        console.log(leadcheckdate);
-        console.log("leadcheckdate=========");
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_CHECKDATE_DONE value=${leadcheckdate?.checkdate || "none"}`);
         //If no data found then we will originate new calls based on given concurrent_calls value in outbound campaign
 
         const currentDate = new Date(); // Get the current date and time
@@ -1255,6 +1262,7 @@ export class AgentCallCenterService {
         }
 
         Logger.verbose("DATA", agentStatus, leadcount, currentDate.toISOString(), parseInt(concurrent_calls), parseInt(liveCallsForTenant));
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] GATE agentStatus=${agentStatus} leadcount=${leadcount} liveCalls=${liveCallsForTenant} concurrent=${concurrent_calls} checkdateFlag=${checkdate_flag}`);
 
         //Check Role
         let loggedInEntityUUID = manager_uuid;
@@ -1265,15 +1273,22 @@ export class AgentCallCenterService {
 
         //if (  agentStatus > response.length  || ( currentDate.toISOString() > response[ 0 ]?.checkdate ) ) {
         if (((agentStatus > leadcount) || (checkdate_flag == 1 || checkdate_flag == 2)) && (parseInt(concurrent_calls) > parseInt(liveCallsForTenant) || (concurrent_calls == "0"))) {
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] ORIGINATE_GATE_PASS`);
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] TEMP_AGENT_QUEUE_UPDATE_START`);
             await this.commonFn.addtempUpdateAgentInQueue(username, domain);
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] TEMP_AGENT_QUEUE_UPDATE_DONE`);
             try {
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] CAMPAIGN_LOOKUP_START flag=${campaign_flag}`);
                 let populateFileds = [{ path: "outgoing_rule", select: "rules -_id" }];
                 if (campaign_flag == 'blended') {
-                    campaignData = await this.blended_campaign.findOne({ uuid: campaign_uuid }, { concurrent_call: 1, call_id_type: 1, call_id_value: 1, outgoing_rule_uuid: 1, agent_timeout: 1, number_masking: 1, timeout: 1, answering_machine_detection: 1, caller_id_time: 1, cps: 1, _id: 0 }).populate(populateFileds).exec();
+                    campaignData = await this.blended_campaign.findOne({ uuid: campaign_uuid }, { concurrent_call: 1, call_id_type: 1, call_id_value: 1, outgoing_rule_uuid: 1, agent_timeout: 1, number_masking: 1, timeout: 1, answering_machine_detection: 1, caller_id_time: 1, cps: 1, lead_type: 1, _id: 0 }).populate(populateFileds).exec();
                 } else if (campaign_flag == 'outbound') {
-                    campaignData = await this.outbound_campaign.findOne({ uuid: campaign_uuid }, { concurrent_call: 1, call_id_type: 1, call_id_value: 1, outgoing_rule_uuid: 1, agent_timeout: 1, number_masking: 1, timeout: 1, answering_machine_detection: 1, caller_id_time: 1, cps: 1, _id: 0 }).populate(populateFileds).exec();
+                    campaignData = await this.outbound_campaign.findOne({ uuid: campaign_uuid }, { concurrent_call: 1, call_id_type: 1, call_id_value: 1, outgoing_rule_uuid: 1, agent_timeout: 1, number_masking: 1, timeout: 1, answering_machine_detection: 1, caller_id_time: 1, cps: 1, lead_type: 1, _id: 0 }).populate(populateFileds).exec();
                 }
-                allLeads = await this.fetchLeads(campaign_uuid, tenant_uuid, campaignData?.concurrent_call, agentcount);
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] CAMPAIGN_LOOKUP_DONE found=${!!campaignData} concurrent=${campaignData?.concurrent_call} leadType=${campaignData?.lead_type ?? "missing"}`);
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_START`);
+                allLeads = await this.fetchLeads(campaign_uuid, tenant_uuid, campaignData?.concurrent_call, agentcount, campaignData?.lead_type, traceId);
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_DONE count=${allLeads?.length ?? "undefined"}`);
                 if (allLeads.length == 0) {
                     Logger.error(`Leads not found with campaign : ${campaign_uuid} and lead_sent = 1 \n`);
                     return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `No more leads found with campaign : ${campaign_uuid}`);
@@ -1304,7 +1319,9 @@ export class AgentCallCenterService {
                 }
 
             } catch (error) {
-                Logger.error(`Error in catch block ==> lead_originate \n`, error.message);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                Logger.error(`[AUTO_DIAL_TRACE ${traceId}] PREPARE_ORIGINATE_ERROR`, errorMessage);
+                Logger.error(`Error in catch block ==> lead_originate \n`, errorMessage);
             }
 
 
@@ -1514,6 +1531,10 @@ export class AgentCallCenterService {
 
             //await this.lead_originate.insertMany( allLeads, { ordered: false } );
         }
+        else {
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] ORIGINATE_GATE_BLOCKED`);
+        }
+        Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] RESUME_DONE`);
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, "Leads added or sent");
     }
 
@@ -4062,13 +4083,20 @@ return uniqueIds;
     //     }
     // }
 
-    async fetchLeads(campaign_uuid, tenant_uuid, limit, agentcount) {
+    async fetchLeads(campaign_uuid, tenant_uuid, limit, agentcount, leadType = "0", traceId = "no-trace") {
+        let release;
         try {
+            leadType = String(leadType ?? "0");
+            limit = Number(limit);
+            if (!Number.isInteger(limit) || limit <= 0) {
+                Logger.error(`[AUTO_DIAL_TRACE ${traceId}] INVALID_LEAD_LIMIT value=${limit}`);
+                return [];
+            }
             // Acquire the lock
             const maxLeads = agentcount * limit;
-            console.log('maxleads =====>', maxLeads)
-            const release = await mutex.acquire();
-            console.log('THis api is lock');
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_LOCK_REQUEST maxLeads=${maxLeads} limit=${limit} agentCount=${agentcount} leadType=${leadType}`);
+            release = await mutex.acquire();
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_LOCK_ACQUIRED`);
 
             let populateFields = [
                 { path: "lead_details", select: "first_name last_name phone_number lead_management_uuid uuid phone_code custom_phone_number -_id" }
@@ -4089,8 +4117,27 @@ return uniqueIds;
             //     filter = { campaign_uuid, tenant_uuid, lead_sent: "1" };
             // }
 
-            // Find and store the leads
-            let newleads = await this.leads_in_queue.find(filter).populate(populateFields).limit(limit).exec();
+            // Top Down is oldest first; Random uses MongoDB's random sampler.
+            let newleads;
+            if (leadType === "1") {
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_QUERY_RANDOM_START`);
+                newleads = await this.leads_in_queue.aggregate([
+                    { $match: filter },
+                    { $sample: { size: limit } }
+                ]).exec();
+                newleads = await this.leads_in_queue.populate(newleads, populateFields);
+            } else {
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_QUERY_TOP_DOWN_START sort=updatedAt`);
+                newleads = await this.leads_in_queue.find(filter)
+                    .sort({ updatedAt: 1, _id: 1 })
+                    .limit(limit)
+                    .populate(populateFields)
+                    .exec();
+            }
+            const selectedLeadUUIDs = (newleads || [])
+                .map(lead => lead?.lead_management_uuid)
+                .filter(Boolean);
+            Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_QUERY_DONE count=${newleads?.length ?? "undefined"} leadUUIDs=${selectedLeadUUIDs.join(",") || "none"}`);
             //  this.leadUUIDs = [];
             console.log(newleads);
             // Extract lead UUIDs from the retrieved leads
@@ -4108,7 +4155,7 @@ return uniqueIds;
                 }
 
                 let updateResult = await this.leads_in_queue.updateMany({ lead_management_uuid: { $in: newLeadUUIDs } }, { $set: { lead_sent: "0" } });
-                console.log(`Updated ${updateResult.modifiedCount} leads.`);
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] LEAD_RESERVATION_DONE requested=${newLeadUUIDs.length} modified=${updateResult.modifiedCount} leadUUIDs=${newLeadUUIDs.join(",")}`);
 
                 // this.leadUUIDs.push(...newLeadUUIDs);
                 while (this.leadUUIDs.length > maxLeads) {
@@ -4126,14 +4173,17 @@ return uniqueIds;
 
             // console.log( `Updated ${updateResult.modifiedCount} leads.` );
 
-            // Release the lock
-
-            release();
-            console.log('this api is unlock')
-
             return newleads; // Return the leads retrieved before updating
         } catch (error) {
-            Logger.error(`Error in catch block ==> fetchLeads()`, error.message);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            Logger.error(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_ERROR`, errorMessage);
+            Logger.error(`Error in catch block ==> fetchLeads()`, errorMessage);
+            return [];
+        } finally {
+            if (release) {
+                release();
+                Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] FETCH_LEADS_LOCK_RELEASED`);
+            }
         }
     }
 
