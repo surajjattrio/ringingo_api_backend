@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
 
 export class CreateMessageConfigurationDto {
@@ -17,6 +18,10 @@ export class CreateMessageConfigurationDto {
   @IsOptional()
   headers: any[];
 
+  @IsArray()
+  @IsOptional()
+  templates: string[];
+
   @IsString()
   @IsOptional()
   body: string;
@@ -30,4 +35,4 @@ export class CreateMessageConfigurationDto {
   tenant_uuid: string;
 }
 
-export class UpdateMessageConfigurationDto extends CreateMessageConfigurationDto { }
+export class UpdateMessageConfigurationDto extends PartialType(CreateMessageConfigurationDto) { }

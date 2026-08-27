@@ -30,6 +30,9 @@ export class MessageConfiguration {
   @Prop({ type: Array, default: [] })
   headers: any[];
 
+  @Prop({ type: Array, default: [] })
+  templates: string[];
+
   @Prop({ type: String })
   body: string;
 

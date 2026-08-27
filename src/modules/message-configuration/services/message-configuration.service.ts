@@ -49,7 +49,10 @@ export class MessageConfigurationService {
     const query: any = { uuid };
     if (tenant_uuid) query.tenant_uuid = tenant_uuid;
     
-    const result = await this.messageConfigurationModel.findOne(query).exec();
+    let result = await this.messageConfigurationModel.findOne(query).exec();
+    if (!result && tenant_uuid) {
+      result = await this.messageConfigurationModel.findOne({ uuid }).exec();
+    }
     if (!result) {
       return {
         statusCode: HttpStatus.NOT_FOUND,
@@ -79,7 +82,7 @@ export class MessageConfigurationService {
   }
 
   async sendMessage(payload: any): Promise<any> {
-    const { config_uuid, to, lead_data } = payload;
+    const { config_uuid, to, lead_data, template_name } = payload;
     console.log("sendMessage called with payload:", payload);
     try {
       const config = await this.messageConfigurationModel.findOne({ uuid: config_uuid }).exec();
@@ -90,8 +93,17 @@ export class MessageConfigurationService {
         };
       }
 
-        // Create a unified replacement object that guarantees both phone variables are updated with 'to'
-        const replacementData = { ...lead_data, phone_number: to, custom_phone_number: to };
+      const selectedTemplateName = template_name || (Array.isArray(config.templates) && config.templates.length > 0 ? config.templates[0] : '');
+
+      // Create a unified replacement object that guarantees phone and template variables are populated
+      const replacementData = {
+        ...lead_data,
+        phone_number: to,
+        custom_phone_number: to,
+        template_name: selectedTemplateName,
+        templatename: selectedTemplateName,
+        template: selectedTemplateName,
+      };
 
       // 1. Resolve URL
       const resolvedUrl = this.replacePlaceholders(config.baseUrl, replacementData);
@@ -158,6 +170,10 @@ export class MessageConfigurationService {
       
       if (simplifiedSearchKey === 'phone' || simplifiedSearchKey === 'phonenumber') {
         return leadData?.custom_phone_number || leadData?.phone_number || '';
+      }
+
+      if (simplifiedSearchKey === 'templatename' || simplifiedSearchKey === 'template') {
+        return leadData?.template_name || leadData?.templatename || leadData?.template || '';
       }
       
       if (!leadData) return '';
