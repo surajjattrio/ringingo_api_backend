@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm install --force
 
 # COPY FULL SOURCE (THIS WAS THE MISSING STEP!)
 COPY . .
