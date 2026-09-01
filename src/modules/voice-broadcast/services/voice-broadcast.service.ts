@@ -505,11 +505,8 @@ export class VoiceBroadcastService implements OnModuleInit {
         let self = this;
         return new Promise( async function ( resolve, reject ) {
             allData = result.map( async ( data ) => {
-                if ( !data.lead_status || data.lead_status === "NEW" ) {
-                    data.lead_management_uuid = data.lead_management_uuid;
-                    data.lead_group_uuid = data.lead_group_uuid;
-                    await self.lead_management.updateOne( { lead_management_uuid: data.lead_management_uuid }, { $set: { retries_count: 0 } } ).exec();
-                    return data;
+                if ( !data?.lead_status ) {
+                    return;
                 }
                 let resCount = await self.outbound_campaign_diallable_status.find( {
                     $and: [
@@ -518,8 +515,8 @@ export class VoiceBroadcastService implements OnModuleInit {
                     ]
                 } ).count().exec();
                 if ( resCount > 0 ) {
-                    data.lead_management_uuid = data.lead_management_uuid;
-                    data.lead_group_uuid = data.lead_group_uuid;
+                    data.lead_management_uuid;
+                    data.lead_group_uuid;
                     await self.lead_management.updateOne( { lead_management_uuid: data.lead_management_uuid }, { $set: { retries_count: 0 } } ).exec();
                     return data;
                 }
