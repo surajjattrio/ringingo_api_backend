@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, FileTypeValidator, Get, Param, ParseFilePipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Delete, FileTypeValidator, Get, Param, ParseFilePipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { PatchDto } from "src/modules/common/dto/patch.dto";
 import { deleteDecoraters, getDecoraters, postDecoraters, putDecoraters } from "src/swagger/swagger_decoraters";
 import { CreateLeadManagementDto } from "../dto/create-lead-management.dto";
 import { LeadManagementService } from "../services/lead-management.service";
+import { Public } from "src/global_constant";
+import { TokenOrApiKeyAuthGuard } from "src/modules/auth/token_or_api_key_auth_guard";
 import { AgentLeadManagementDto } from "../dto/agent-lead-management";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
@@ -44,6 +46,8 @@ export class LeadManagementController {
         return this.lead_management.create(createLeadManagementDto);
     }
 
+    @Public()
+    @UseGuards(TokenOrApiKeyAuthGuard)
     @Post("/new")
     @postDecoraters("Lead created successfully", "Create a new lead")
 
@@ -55,6 +59,7 @@ export class LeadManagementController {
     @Param phone_number             : string
     @Param status                   : integer [Default 0]
     @return success / error object  : { Lead created successfully / Lead already exist}
+    @Auth   : Validates "Authorization: Bearer <JWT>" if present, else requires "x-api-key"
     */
 
     createNewLead(@Body() createLeadManagementDto: CreateLeadManagementDto) {
