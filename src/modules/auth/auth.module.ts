@@ -12,6 +12,7 @@ import { VerifyJWT } from "./verify.jwt";
 import { managerSchema, ManagerSchema } from "../manager/schema/manager.schema";
 import { timezoneSchema, TimezoneSchema } from "../timezone/schema/timezone.schema";
 import { sipProfileSchema, SipProfileSchema } from "../sip-profile/schema/sip-profile-schema";
+import { TokenOrApiKeyAuthGuard } from "./token_or_api_key_auth_guard";
 
 @Global()
 @Module({
@@ -29,12 +30,12 @@ import { sipProfileSchema, SipProfileSchema } from "../sip-profile/schema/sip-pr
             signOptions: { expiresIn: process.env.JWT_EXPIRE }
         }),
     })],
-    providers: [PassportLocalStrategy, JWTService, VerifyJWT, {
+    providers: [PassportLocalStrategy, JWTService, VerifyJWT, TokenOrApiKeyAuthGuard, {
         provide: APP_GUARD,
         useClass: JwtAuthGuard
     },
     ],
-    exports: [JWTService]
+    exports: [JWTService, TokenOrApiKeyAuthGuard, MongooseModule, JwtModule]
 })
 
 export class AuthModule { }

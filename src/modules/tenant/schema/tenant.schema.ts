@@ -93,6 +93,9 @@ export class TenantSchema {
 
     @Prop()
     vendor_token: String;
+
+    @Prop({ index: true })
+    api_key: String;
 }
 
 let tenantSchema = SchemaFactory.createForClass( TenantSchema );

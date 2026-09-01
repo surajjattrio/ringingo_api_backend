@@ -16,7 +16,7 @@ export class SetUUIDInterceptor implements NestInterceptor {
         const request: any = _context.switchToHttp().getRequest();
         const timezone = request?.user?.timezone;
         //const timezone = "Asia/Kolkata";
-        if ( request.method == "GET" ) {
+        if ( request.method == "GET" && request?.user ) {
             request.query.tenant_uuid = request?.user?.uuid;
             request.query.role = request?.user?.role;
             request.query.uuid = request?.user?.uuid;
@@ -46,9 +46,15 @@ export class SetUUIDInterceptor implements NestInterceptor {
 
             request.query.timezone = request?.user?.timezone;
             Logger.debug( `Added extra info in request \n`, `tenant_uuid|role|logged_in_entity_uuid|manager_uuid : ${request.query.tenant_uuid}|${request.query.role}|${request.query.uuid}|${request?.user?.manager_uuid}` );
+        } else if ( request.method == "GET" && request?.tenant_uuid ) {
+            // Authenticated via x-api-key [see TokenOrApiKeyAuthGuard] - scope the query to that tenant.
+            // role must be set too: findAllWithPagination's tenant filter only applies when role == "tenant".
+            request.query.tenant_uuid = request.tenant_uuid;
+            request.query.role = "tenant";
+            request.query.uuid = request.tenant_uuid;
         }
 
-        if ( request.method == "POST" || request.method == "PUT" || request.method == "DELETE" ) {
+        if ( ( request.method == "POST" || request.method == "PUT" || request.method == "DELETE" ) && request?.user ) {
             request.body.tenant_uuid = request?.user?.uuid;
             request.body.role = request?.user?.role;
             if ( !request.url.includes( "/trunk" ) ) {
@@ -75,6 +81,10 @@ export class SetUUIDInterceptor implements NestInterceptor {
             request.body.timezone = request?.user?.timezone;
 
             Logger.debug( `Added extra info in request \n`, `tenant_uuid|role|domain|logged_in_entity_uuid|manager_uuid : ${request.body.tenant_uuid}|${request.body.role}|${request.body.domain}|${request.body.uuid}|${request?.user?.manager_uuid}` );
+        } else if ( ( request.method == "POST" || request.method == "PUT" || request.method == "DELETE" ) && request?.tenant_uuid ) {
+            // Authenticated via x-api-key [see TokenOrApiKeyAuthGuard] - force tenant_uuid to the key's own
+            // tenant, regardless of what the client sent in the body, so a key can't be used to write to another tenant
+            request.body.tenant_uuid = request.tenant_uuid;
         }
 
         // Modify response of every request

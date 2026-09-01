@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { PatchDto } from "src/modules/common/dto/patch.dto";
 import { deleteDecoraters, getDecoraters, postDecoraters, putDecoraters } from "src/swagger/swagger_decoraters";
@@ -8,6 +8,7 @@ import { LoggedInUserDto } from "../dto/logged-in-user.dto";
 import { Public } from "src/global_constant";
 import { LogoutUserDto } from "../dto/logout-user.dto";
 import { UserRabbitmqService } from "../services/user-rabbitmq.service";
+import { TokenOrApiKeyAuthGuard } from "src/modules/auth/token_or_api_key_auth_guard";
 
 @Controller("user")
 
@@ -60,6 +61,8 @@ export class UserController {
         return this.user.advancedSearch(searchData);
     }
 
+    @Public()
+    @UseGuards(TokenOrApiKeyAuthGuard)
     @Get()
     @getDecoraters("Retrieved all users successfully", "List all users")
 
