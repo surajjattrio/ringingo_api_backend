@@ -110,6 +110,7 @@ import { EmailTemplateModule } from "./modules/email-template/email-template.mod
 import { ApiConfigurationModule } from "./modules/api-configuration/api-configuration.module";
 import { MessageConfigurationModule } from "./modules/message-configuration/message-configuration.module";
 import { ApiKeyModule } from "./modules/api-key/api-key.module";
+import { SystemMonitoringModule } from "./modules/system-monitoring/system-monitoring.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -217,6 +218,7 @@ import { ApiKeyModule } from "./modules/api-key/api-key.module";
     MessageConfigurationModule,
     MailScheduleModule,
     ApiKeyModule,
+    SystemMonitoringModule,
   ],
   controllers: [],
   providers: [
