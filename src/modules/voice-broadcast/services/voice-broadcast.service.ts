@@ -765,6 +765,33 @@ export class VoiceBroadcastService implements OnModuleInit {
 
                 for ( let i = 0; i < channel; i++ ) {
                     try {
+                        // Re-check end time before each call to prevent firing after end time
+                        let loopNowStr = this.commonFn.getTodayDate( true );
+                        let loopNow = new Date( loopNowStr.replace( ' ', 'T' ) );
+                        let loopEnd = new Date( end_date.replace( ' ', 'T' ) );
+                        if ( loopNow >= loopEnd ) {
+                            Logger.warn( `End time ${end_date} reached mid-batch at ${loopNowStr}, stopping calls for broadcast: ${voiceBroadcastUUID}` );
+                            await this.updateBroadCastFlag( voiceBroadcastUUID, "3" );
+                            // Delete any leads we already processed in this batch
+                            if ( deleteLeads.length > 0 ) {
+                                await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, uuid: { $in: deleteLeads } } );
+                            }
+                            return;
+                        }
+
+                        // Re-check if broadcast was manually stopped/paused
+                        let isStopped = await this.checkBroadcastStatus( voiceBroadcastUUID );
+                        if ( isStopped === true ) {
+                            Logger.warn( `Broadcast ${voiceBroadcastUUID} was stopped mid-batch, halting calls` );
+                            // Remove from stoppedBroadcastList (same cleanup as existing stop flow)
+                            let stopIndex = this.stoppedBroadcastList.indexOf( voiceBroadcastUUID );
+                            if ( stopIndex > -1 ) this.stoppedBroadcastList.splice( stopIndex, 1 );
+                            if ( deleteLeads.length > 0 ) {
+                                await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, uuid: { $in: deleteLeads } } );
+                            }
+                            await this.updateBroadCastFlag( voiceBroadcastUUID, "3" );
+                            return;
+                        }
 
                         //Send caller id
 			let new_caller_id;
