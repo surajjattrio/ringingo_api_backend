@@ -89,6 +89,9 @@ export class UserRoleSchema {
 
     @Prop({ default: "1" })
     bot_lead_info: String
+
+    @Prop({ default: "0" })
+    is_lead_edit: String
 }
 
 let userRoleSchema = SchemaFactory.createForClass( UserRoleSchema );

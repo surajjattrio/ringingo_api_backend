@@ -65,6 +65,9 @@ export class OutboundCampaignSchema {
   @Prop()
   auto_answer: String
 
+  @Prop({ default: "1" })
+  is_limechat: String
+
   @Prop()
   tenant_uuid: String
 
@@ -171,6 +174,14 @@ export class OutboundCampaignSchema {
     index: true,
   })
   message_config_uuid: string;
+
+  // Multi Caller IDs for Manual Calls : "0" - Enable | "1" - Disable
+  @Prop( { default: "1" } )
+  manual_multi_caller_id: String
+
+  // DID numbers agent can choose as caller id while manual dialing
+  @Prop( { default: [], type: Array } )
+  manual_caller_ids: Object
 
 }
 

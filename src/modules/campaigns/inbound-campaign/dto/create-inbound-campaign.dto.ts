@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsIn, IsNotEmpty, IsNumberString, IsOptional, IsUUID, ValidateIf } from "class-validator";
+import { IsIn, IsNotEmpty, IsNumberString, IsOptional, IsString, IsUUID, ValidateIf } from "class-validator";
 
 export class CreateInboundCampaignDto {
 
@@ -105,6 +105,11 @@ export class CreateInboundCampaignDto {
     @IsOptional()
     @IsIn( [ "0", "1" ] )
     auto_answer: string
+
+    @ApiProperty()
+    @IsOptional()
+    @IsString()
+    is_limechat: string
 
     @ApiProperty()
     @IsOptional()

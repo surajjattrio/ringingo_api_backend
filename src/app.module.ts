@@ -47,6 +47,7 @@ import { IpMappingModule } from "./modules/ip-mapping/ip-mapping.module";
 import { LeadGroupModule } from "./modules/lead-group/lead-group.module";
 import { CallerIdGroupModule } from "./modules/caller-id-group/caller-id-group.module";
 import { DispositionModule } from "./modules/disposition/disposition.module";
+import { KanbanModule } from "./modules/kanban/kanban.module";
 import { OutboundCampaignModule } from "./modules/campaigns/outbound-campaign/outbound-campaign.module";
 import { AgentCallCenterModule } from "./modules/call-center/agent-call-center.module";
 import { InboundCampaignModule } from "./modules/campaigns/inbound-campaign/inbound-campaign.module";
@@ -61,6 +62,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { CronModule } from "./modules/cron/cron.module";
 import { BlockInboundCampaignModule } from "./modules/campaigns/block-inbound-campaign/block-inbound-campaign.module";
 import { ClickToCallModule } from "./modules/click-to-call/click-to-call.module";
+import { CtcModule } from "./modules/ctc/ctc.module";
 import { WebsocketsModule } from "./modules/websockets/websockets.module";
 import { VoiceBroadcastModule } from "./modules/voice-broadcast/voice-broadcast.module";
 import { UserPerformanseReportModule } from "./modules/user-performance-report/user-performance-report.module";
@@ -111,6 +113,9 @@ import { ApiConfigurationModule } from "./modules/api-configuration/api-configur
 import { MessageConfigurationModule } from "./modules/message-configuration/message-configuration.module";
 import { ApiKeyModule } from "./modules/api-key/api-key.module";
 import { SystemMonitoringModule } from "./modules/system-monitoring/system-monitoring.module";
+import { CallFeedbackModule } from "./modules/call-feedback/call-feedback.module";
+import { SmsProviderConfigModule } from "./modules/sms-provider-config/sms-provider-config.module";
+import { ServerSyncModule } from "./modules/server-sync/server-sync.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -171,6 +176,7 @@ import { SystemMonitoringModule } from "./modules/system-monitoring/system-monit
     CronModule,
     BlockInboundCampaignModule,
     ClickToCallModule,
+    CtcModule,
     VoiceBroadcastModule,
     UserPerformanseReportModule,
     LeadreportModule,
@@ -218,7 +224,11 @@ import { SystemMonitoringModule } from "./modules/system-monitoring/system-monit
     MessageConfigurationModule,
     MailScheduleModule,
     ApiKeyModule,
+    KanbanModule,
     SystemMonitoringModule,
+    CallFeedbackModule,
+    SmsProviderConfigModule,
+    ServerSyncModule,
   ],
   controllers: [],
   providers: [

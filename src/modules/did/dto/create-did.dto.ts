@@ -41,4 +41,8 @@ export class CreateDidDto {
     @IsIn(["0","1"])
     did_as_cid : string
 
+    @ApiProperty({ description: "Display name of DID" })
+    @IsOptional()
+    name : string
+
 }

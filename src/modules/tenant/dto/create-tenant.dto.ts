@@ -42,6 +42,11 @@ export class CreateTenantDto {
     @IsUUID()
     sip_profile_uuid: string
 
+    @ApiProperty({ description: 'Multiple sip profiles assigned to tenant, sip_profile_uuid is default one' })
+    @IsOptional()
+    @IsUUID("all", { each: true })
+    sip_profile_uuids: string[]
+
     // @ApiProperty()
     // @IsEmail()
     // email: string

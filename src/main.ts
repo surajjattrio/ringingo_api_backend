@@ -9,6 +9,7 @@ import { SetUUIDInterceptor } from './interceptor/logged-in-user-info.intercepto
 // import { json, urlencoded } from 'express';
 import * as fs from "fs";
 // import { Transport } from '@nestjs/microservices';
+import { initVoiceBroadcastProcessLogger } from './logger/voice-broadcast-process-logger';
 
 //Create SSL SERVER
 const httpsOptions = {
@@ -16,6 +17,10 @@ const httpsOptions = {
   cert: fs.readFileSync(process.env.cert),
 };
 //End
+
+//Voice-broadcast: file-based uncaughtException/unhandledRejection capture (logs/voice-broadcast/exceptions|rejections-*.log).
+//Registered once here, process-wide by nature - see voice-broadcast-process-logger.ts for why.
+initVoiceBroadcastProcessLogger();
 //Just for development purpose
 let debug = process.env.ENVIRONMENT == 'development' ? true : false;
 mongoose.set('debug', debug);

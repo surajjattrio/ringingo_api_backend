@@ -35,8 +35,35 @@ export class SipProfileService {
     @return Object             :  Success / Error  
     */
 
+    /*
+    @Usage : Validate sip profile so that multiple profiles can run together on same FS server
+             - name is used as FS profile name
+             - sip port must be unique and must not clash with primary profile ports
+    */
+
+    private async validateSipProfile(createSipProfileDto: CreateSipProfileDto, uuid: string = "") {
+        const { name, sip_port } = createSipProfileDto;
+        if (!/^[A-Za-z0-9_-]+$/.test(String(name || ""))) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, "SIP profile name allows only letters, numbers, _ and -");
+        }
+        //Primary profile is loaded from static FS file, its port is not checked
+        if (String(name) == CommonFunctions.PRIMARY_SIP_PROFILE_NAME) return null;
+        if (CommonFunctions.RESERVED_SIP_PORTS.includes(String(sip_port))) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `SIP port ${sip_port} is reserved for primary profile, please use another port`);
+        }
+        const where: any = { sip_port: String(sip_port) };
+        if (uuid) where.uuid = { $ne: uuid };
+        const portUsedBy = await this.sip_profile.findOne(where, { name: 1 }).exec();
+        if (portUsedBy) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `SIP port ${sip_port} already used by ${portUsedBy.name} profile`);
+        }
+        return null;
+    }
+
     async create(createSipProfileDto: CreateSipProfileDto) {
         const { name } = createSipProfileDto;
+        const invalid = await this.validateSipProfile(createSipProfileDto);
+        if (invalid) return invalid;
         let logMessages = {
             logErrorMsg: "SIP profile already exist \n",
             logSuccessMsg: "SIP profile created successfully \n"
@@ -54,9 +81,8 @@ export class SipProfileService {
 	//Generate sip profile
 	await this.commonFn.generateSipProfile(response.message, allTenants, allTrunks);
 
-	//Start & rescan sip profile
-        await this.commonFn.startSipProfile(name);
-	await this.commonFn.rescanSipProfile(name);
+	//Load / start sip profile in FS
+        await this.commonFn.applySipProfileInFs(response.message);
 
         delete response.message
         return response;
@@ -95,7 +121,9 @@ export class SipProfileService {
     */
 
     async update(uuid: string, createSipProfileDto: CreateSipProfileDto) {
-        const { name } = createSipProfileDto;
+        const invalid = await this.validateSipProfile(createSipProfileDto, uuid);
+        if (invalid) return invalid;
+        const oldProfile: any = await this.sip_profile.findOne({ uuid }).lean().exec();
         let logMessages = {
             logErrorMsg: `SIP profile not found by uuid : ${uuid} \n`,
             logSuccessMsg: `SIP profile updated successfully by uuid : ${uuid} \n`
@@ -115,12 +143,19 @@ export class SipProfileService {
         //Fetch all trunks correspondence to this sip profile
         let allTrunks = await this.trunk.find({ sip_profile_uuid }).exec();
 	
+        const sipProfile: any = await this.sip_profile.findOne({ uuid }).lean().exec();
+
 	//Generate sip profile
-        await this.commonFn.generateSipProfile(createSipProfileDto, allTenants, allTrunks);
-        
-	//Start & rescan sip profile
-	//await this.commonFn.startSipProfile(name);
-        await this.commonFn.rescanSipProfile(name);
+        await this.commonFn.generateSipProfile(sipProfile, allTenants, allTrunks);
+
+        //Profile renamed : stop old FS profile
+        if (oldProfile?.name && oldProfile.name != sipProfile?.name) {
+            await this.commonFn.stopSipProfile(oldProfile.name);
+        }
+
+        //Load sip profile in FS, restart only if ip / port changed
+        const restart = oldProfile?.sip_ip != sipProfile?.sip_ip || oldProfile?.sip_port != sipProfile?.sip_port;
+        await this.commonFn.applySipProfileInFs(sipProfile, restart);
 
         return response;
     }
@@ -136,11 +171,28 @@ export class SipProfileService {
             logErrorMsg: `SIP profile not exist by uuid : ${uuid} \n`,
             logSuccessMsg: `SIP profile deleted successfully by uuid : ${uuid} \n`
         }
-	const path = `${process.env.SIP_PROFILE_DIRECTORY}${uuid}.xml`;
-	fs.unlink(path, (result) => {
-            Logger.debug(`Successfully deleted ${uuid}.xml file`);
-        });
-	await this.commonFn.reloadModSofia();
+        const uuids = uuid.split(",");
+        const profiles: any[] = await this.sip_profile.find({ uuid: { $in: uuids } }).lean().exec();
+
+        //Profile in use by trunk / tenant can not be deleted, otherwise their calls will fail
+        const usedByTrunk = await this.trunk.countDocuments({ sip_profile_uuid: { $in: uuids } }).exec();
+        const usedByTenant = await this.tenant.countDocuments({ $or: [{ sip_profile_uuid: { $in: uuids } }, { sip_profile_uuids: { $in: uuids } }] }).exec();
+        if (usedByTrunk > 0 || usedByTenant > 0) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, "SIP profile is assigned to trunk / tenant, please change it before delete");
+        }
+        if (profiles.some(profile => this.commonFn.isPrimarySipProfile(profile))) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, "Primary SIP profile can not be deleted");
+        }
+
+        for (const profile of profiles) {
+            await this.commonFn.stopSipProfile(profile.name);
+            this.commonFn.removeLoadableSipProfile(profile.uuid);
+            fs.unlink(`${process.env.SIP_PROFILE_DIRECTORY}${profile.uuid}.xml`, () => {
+                Logger.debug(`Successfully deleted ${profile.uuid}.xml file`);
+            });
+        }
+        //Only reload xml, reloading mod_sofia drops all running calls
+        await this.commonFn.fsApi("reloadxml");
         return this.commonDbFn.delete(this.sip_profile, { uuid }, JSON.stringify(logMessages));
     }
 
@@ -166,7 +218,17 @@ export class SipProfileService {
             logErrorMsg: `SIP profile not found by ${uuid} \n`,
             logSuccessMsg: `SIP profile status updated successfully by uuid ${uuid} \n`
         }
-        return this.commonDbFn.update(this.sip_profile, uuid, body, JSON.stringify(logMessages));
+        const response = await this.commonDbFn.update(this.sip_profile, uuid, body, JSON.stringify(logMessages));
+
+        //Active / Inactive : load or stop profile in FS
+        const sipProfile: any = await this.sip_profile.findOne({ uuid }).lean().exec();
+        if (sipProfile) {
+            const allTenants = await this.tenant.find({ sip_profile_uuid: uuid }, { domain: 1, _id: 0 }).exec();
+            const allTrunks = await this.trunk.find({ sip_profile_uuid: uuid }).exec();
+            await this.commonFn.generateSipProfile(sipProfile, allTenants, allTrunks);
+            await this.commonFn.applySipProfileInFs(sipProfile);
+        }
+        return response;
     }
 
     /*

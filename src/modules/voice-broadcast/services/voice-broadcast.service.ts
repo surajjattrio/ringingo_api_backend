@@ -19,6 +19,9 @@ import { CallerIdSchema, callerIdDocument } from "src/modules/caller-id-group/sc
 import { DeleteLeadGroupDto } from "../dto/delete-lead-group.dto";
 import { DispositionDocument, DispositionSchema } from "src/modules/disposition/schema/disposition.schema";
 import { TenantDocument, TenantSchema } from "src/modules/tenant/schema/tenant.schema";
+import { VoiceBroadcastLoggerService } from "./voice-broadcast-logger.service";
+import { isCliRoute, nextCliRouteRoundRobin, resolveCliRoute } from "src/modules/outgoing-rules/utils/cli-route";
+import { getVoiceBroadcastLogContext, runWithVoiceBroadcastLogContext } from "../utils/voice-broadcast-log-context";
 @Injectable()
 
 export class VoiceBroadcastService implements OnModuleInit {
@@ -33,6 +36,8 @@ export class VoiceBroadcastService implements OnModuleInit {
     private stoppedBroadcastList = [];
     private totalCallSent = [];
     private allBroadcastDatas = [];
+    // CLI based outgoing rule of running broadcast (route_type = "cli"), keyed by voice broadcast uuid
+    private vbCliRules = {};
 
     /*
     @Usage              : To start this function on server restart , we will fetch all broadcast's which was missed at the time of server down OR restart
@@ -81,6 +86,7 @@ export class VoiceBroadcastService implements OnModuleInit {
         @InjectModel( TenantSchema.name ) private readonly tenant: Model<TenantDocument>,
         private readonly commonDbFn: CommonDBFunctions,
         private readonly commonFn: CommonFunctions,
+        private readonly vbLogger: VoiceBroadcastLoggerService,
 
     ) {
 
@@ -341,11 +347,17 @@ export class VoiceBroadcastService implements OnModuleInit {
     */
 
     async resetLeads ( voiceBroadcastLeadGroupDto: VoiceBroadcastLeadGroupDto ) {
+        const { tenant_uuid, voice_broadcast_uuid } = voiceBroadcastLeadGroupDto;
+        return runWithVoiceBroadcastLogContext( { tenant_uuid, voice_broadcast_uuid }, () => this.resetLeadsImpl( voiceBroadcastLeadGroupDto ) );
+    }
+
+    private async resetLeadsImpl ( voiceBroadcastLeadGroupDto: VoiceBroadcastLeadGroupDto ) {
         try {
-            let allLeads;
             const { lead_group_uuid, tenant_uuid, voice_broadcast_uuid } = voiceBroadcastLeadGroupDto;
             const lgUuids = this.getLeadGroupUuids( lead_group_uuid );
             let lgQuery: any = lgUuids.length > 1 ? { $in: lgUuids } : ( lgUuids[ 0 ] || lead_group_uuid );
+
+            this.vbLogger.info( "reset_leads.started", `Reset-leads triggered for lead group(s) : ${lgUuids.join( ', ' )}`, { lead_group_uuid: lgUuids } );
 
             //Delete old records of tenant if it exist
             let deleteLeads = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery } );
@@ -370,22 +382,10 @@ export class VoiceBroadcastService implements OnModuleInit {
                 Logger.debug( `Fetched total leads (fallback) : ${result?.length || 0} from lead group(s) : ${lgUuids.join( ', ' )} \n` );
             }
 
-            //check lead_status exist or not
-            allLeads = await this.addAllLeadsInQueue( result, tenant_uuid, voice_broadcast_uuid );
-            let obj = {}, allLeadsArr = [], count = 0;
-
-
-            allLeads.map( ( data ) => {
-                if ( data != undefined ) {
-                    count++;
-                    obj = { lead_management_uuid: data.lead_management_uuid, tenant_uuid, count, lead_group_uuid: data.lead_group_uuid };
-                    allLeadsArr.push( obj );
-                }
-            } );
-            Logger.debug( `Total matched disposition in diallable === count : ${allLeadsArr.length} \n` );
-            //Add all leads of lead group
-            await this.lead_broadcast_queue.insertMany( allLeadsArr );
-            Logger.debug( `Added total leads in lead broadcast queue: ${allLeadsArr.length} for lead group(s) : ${lgUuids.join( ', ' )} \n` );
+            //check lead_status exist or not, then queue matched leads (shared with the single-lead auto-churn path)
+            const leadUuidsToQueue = result.map( ( data: any ) => data.lead_management_uuid );
+            const queuedUuids = await this.enqueueLeadsForBroadcast( tenant_uuid, voice_broadcast_uuid, leadUuidsToQueue );
+            this.vbLogger.info( "reset_leads.queued", `Queued ${queuedUuids.length}/${result.length} matched lead(s) into lead broadcast queue`, { candidates: result.length, queued: queuedUuids.length, lead_group_uuid: lgUuids } );
 
             //Take 100 leads from lead_broadcast_queue
             let fetchLeads = await this.lead_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).limit( 100 ).exec();
@@ -407,15 +407,148 @@ export class VoiceBroadcastService implements OnModuleInit {
                 lastElement = lastElement.count;
                 let result = await this.lead_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, count: { "$lte": lastElement } } );
                 Logger.debug( `Deleted leads count from lead broadcast ===== count : ${result.deletedCount} \n` );
+                this.vbLogger.info( "reset_leads.completed", `Lead reset successfully, hopper primed with ${fetchLeads.length} lead(s)`, { hopper_count: fetchLeads.length, lead_group_uuid: lgUuids } );
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.OK, `Lead reset successfully` );
             } else {
-                Logger.error( `Unable to fetch 100 leads for lead broadcast queue with tenant : ${tenant_uuid} \n` );
+                this.vbLogger.warn( "reset_leads.no_leads", `No leads available to prime the hopper for tenant : ${tenant_uuid}`, { lead_group_uuid: lgUuids } );
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.NOT_FOUND, `Unable to reset lead` );
             }
 
         } catch ( error: any ) {
-            Logger.error( `Error in fetching lead ==== Catch block \n`, error.message );
+            this.vbLogger.error( "reset_leads.failed", `Error while resetting leads : ${error.message}`, { stack: error.stack } );
             return this.commonDbFn.sendResponseWithMessage( HttpStatus.BAD_REQUEST, `Error in fetching lead` );
+        }
+    }
+
+    /*
+    @Usage              : Diallable-filter + insert given leads into lead_broadcast_queue. Shared by resetLeads (bulk re-churn)
+                           and queueNewLeadForBroadcast (single new lead), so both stay consistent.
+    @Param leadUuids     : lead_management_uuid[] to attempt to queue
+    @return Array        : lead_management_uuid[] that were actually queued
+    */
+
+    async enqueueLeadsForBroadcast ( tenant_uuid: string, voice_broadcast_uuid: string, leadUuids: string[] ) {
+        if ( !leadUuids || leadUuids.length === 0 ) return [];
+
+        let result = await this.lead_management.find(
+            { lead_management_uuid: { $in: leadUuids }, tenant_uuid, in_dnc: "1" },
+            { lead_management_uuid: 1, lead_group_uuid: 1, lead_status: 1, _id: 0 }
+        ).exec();
+
+        if ( !result || result.length === 0 ) return [];
+
+        let allLeads: any = await this.addAllLeadsInQueue( result, tenant_uuid, voice_broadcast_uuid );
+        let obj = {}, allLeadsArr = [], queuedUuids = [];
+
+        ( allLeads || [] ).forEach( ( data: any ) => {
+            if ( data != undefined ) {
+                obj = { lead_management_uuid: data.lead_management_uuid, tenant_uuid, count: queuedUuids.length + 1, lead_group_uuid: data.lead_group_uuid };
+                allLeadsArr.push( obj );
+                queuedUuids.push( data.lead_management_uuid );
+            }
+        } );
+
+        if ( allLeadsArr.length > 0 ) {
+            await this.lead_broadcast_queue.insertMany( allLeadsArr );
+            this.vbLogger.debug( "queue.leads_inserted", `Enqueued ${allLeadsArr.length}/${leadUuids.length} lead(s) into lead broadcast queue`, { requested: leadUuids.length, candidates: result.length, queued: allLeadsArr.length }, { voice_broadcast_uuid } );
+        }
+
+        return queuedUuids;
+    }
+
+    /*
+    @Usage                 : To auto-queue a single newly created lead into the voice broadcast linked to its lead group.
+                              If the broadcast is idle/stopped but its own schedule (start_date/end_date) says it should
+                              be active right now, it is auto-started (same as clicking Start) before queueing.
+    @Param tenant_uuid      : tenant uuid the lead was created under
+    @Param lead             : { lead_management_uuid, lead_group_uuid } of the newly created lead
+    @Param voice_broadcast_uuid : optional explicit broadcast uuid, else resolved from lead_group_uuid
+    @return Object          : { queued, voice_broadcast_uuid, reason? }
+    */
+
+    async queueNewLeadForBroadcast ( tenant_uuid: string, lead: { lead_management_uuid: string, lead_group_uuid: string }, voice_broadcast_uuid?: string ) {
+        return runWithVoiceBroadcastLogContext(
+            { tenant_uuid, voice_broadcast_uuid, lead_management_uuid: lead.lead_management_uuid },
+            () => this.queueNewLeadForBroadcastImpl( tenant_uuid, lead, voice_broadcast_uuid )
+        );
+    }
+
+    private async queueNewLeadForBroadcastImpl ( tenant_uuid: string, lead: { lead_management_uuid: string, lead_group_uuid: string }, voice_broadcast_uuid?: string ) {
+        this.vbLogger.debug( "auto_churn.triggered", `vb_auto_churn requested for lead : ${lead.lead_management_uuid}`, { lead_group_uuid: lead.lead_group_uuid, voice_broadcast_uuid: voice_broadcast_uuid || null } );
+        try {
+            //Same dual linkage signal the dialer itself uses in initiateBroadcastCalls()/getLeads():
+            //broadcast.lead_group_uuid array OR lead_group.campaign_uuid pointing back at the broadcast
+            const leadGroup: any = await this.lead_group.findOne( { uuid: lead.lead_group_uuid, tenant_uuid }, { campaign_uuid: 1, _id: 0 } ).exec();
+
+            let broadcast: any;
+            if ( voice_broadcast_uuid ) {
+                broadcast = await this.voice_broadcast.findOne( { uuid: voice_broadcast_uuid, tenant_uuid } ).exec();
+            } else {
+                broadcast = await this.voice_broadcast.findOne( {
+                    tenant_uuid,
+                    $or: [ { lead_group_uuid: lead.lead_group_uuid }, ...( leadGroup?.campaign_uuid ? [ { uuid: leadGroup.campaign_uuid } ] : [] ) ]
+                } ).exec();
+            }
+
+            if ( !broadcast ) {
+                this.vbLogger.warn( "auto_churn.not_linked", `No voice broadcast linked to lead group : ${lead.lead_group_uuid}`, { lead_group_uuid: lead.lead_group_uuid } );
+                return { queued: false, voice_broadcast_uuid: voice_broadcast_uuid || null, reason: "not_linked" };
+            }
+
+            const lgUuids = this.getLeadGroupUuids( broadcast.lead_group_uuid );
+            const linked = lgUuids.includes( String( lead.lead_group_uuid ) ) || leadGroup?.campaign_uuid === broadcast.uuid;
+            if ( !linked ) {
+                this.vbLogger.warn( "auto_churn.not_linked", `Lead group : ${lead.lead_group_uuid} is not linked to broadcast : ${broadcast.uuid}`, { lead_group_uuid: lead.lead_group_uuid }, { voice_broadcast_uuid: broadcast.uuid } );
+                return { queued: false, voice_broadcast_uuid: broadcast.uuid, reason: "not_linked" };
+            }
+
+            if ( ![ "1", "2" ].includes( broadcast.broadcast_status ) ) {
+                //vb_auto_churn agenda: if the broadcast's own schedule says it should be active right now,
+                //trigger it immediately (same as clicking Start) instead of just skipping the lead.
+                const now = this.commonFn.getTodayDate( true );
+                const withinSchedule = !!broadcast.start_date && !!broadcast.end_date && now >= broadcast.start_date && now <= broadcast.end_date;
+
+                if ( !withinSchedule ) {
+                    const reason = broadcast.end_date && now > broadcast.end_date ? "broadcast_ended" : "broadcast_paused";
+                    this.vbLogger.warn( `auto_churn.${reason}`, `Broadcast : ${broadcast.uuid} is not accepting leads (status : ${broadcast.broadcast_status})`, { broadcast_status: broadcast.broadcast_status, start_date: broadcast.start_date, end_date: broadcast.end_date, now }, { voice_broadcast_uuid: broadcast.uuid } );
+                    return { queued: false, voice_broadcast_uuid: broadcast.uuid, reason };
+                }
+
+                //Atomic claim: only the request that actually flips broadcast_status here schedules the start cron,
+                //so concurrent auto-churn triggers on the same idle broadcast can't double-schedule it.
+                const claimed = await this.voice_broadcast.findOneAndUpdate(
+                    { uuid: broadcast.uuid, tenant_uuid, broadcast_status: { $in: [ "0", "3" ] } },
+                    { $set: { broadcast_status: "1" } }
+                ).exec();
+
+                if ( claimed ) {
+                    this.vbLogger.info( "auto_churn.start_claimed", `Auto-starting broadcast : ${broadcast.uuid} (due per its own schedule)`, {}, { voice_broadcast_uuid: broadcast.uuid } );
+                    await this.updateBroadcastStatus( { voice_broadcast_uuid: broadcast.uuid, tenant_uuid } as StartBroadcastDto, "in-progress" );
+                } else {
+                    this.vbLogger.debug( "auto_churn.start_skipped_race", `Broadcast : ${broadcast.uuid} already being started by a concurrent request`, {}, { voice_broadcast_uuid: broadcast.uuid } );
+                }
+                broadcast.broadcast_status = "1";
+            }
+
+            const [ inQueue, inMain ] = await Promise.all( [
+                this.lead_broadcast_queue.findOne( { tenant_uuid, lead_management_uuid: lead.lead_management_uuid } ).exec(),
+                this.main_broadcast_queue.findOne( { tenant_uuid, lead_management_uuid: lead.lead_management_uuid } ).exec()
+            ] );
+            if ( inQueue || inMain ) {
+                this.vbLogger.debug( "auto_churn.already_queued", `Lead : ${lead.lead_management_uuid} is already queued for broadcast : ${broadcast.uuid}`, {}, { voice_broadcast_uuid: broadcast.uuid } );
+                return { queued: false, voice_broadcast_uuid: broadcast.uuid, reason: "already_queued" };
+            }
+
+            const queuedUuids = await this.enqueueLeadsForBroadcast( tenant_uuid, broadcast.uuid, [ lead.lead_management_uuid ] );
+            if ( queuedUuids.includes( lead.lead_management_uuid ) ) {
+                this.vbLogger.info( "auto_churn.queued", `Lead : ${lead.lead_management_uuid} queued into broadcast : ${broadcast.uuid}`, {}, { voice_broadcast_uuid: broadcast.uuid } );
+                return { queued: true, voice_broadcast_uuid: broadcast.uuid };
+            }
+            this.vbLogger.debug( "auto_churn.not_diallable", `Lead : ${lead.lead_management_uuid} disposition is not diallable for broadcast : ${broadcast.uuid}`, {}, { voice_broadcast_uuid: broadcast.uuid } );
+            return { queued: false, voice_broadcast_uuid: broadcast.uuid, reason: "not_diallable" };
+        } catch ( error: any ) {
+            this.vbLogger.error( "auto_churn.error", `Error auto-queueing lead : ${lead.lead_management_uuid} : ${error.message}`, { stack: error.stack }, { voice_broadcast_uuid: voice_broadcast_uuid || null } );
+            return { queued: false, voice_broadcast_uuid: voice_broadcast_uuid || null, reason: "queue_error" };
         }
     }
 
@@ -530,19 +663,21 @@ export class VoiceBroadcastService implements OnModuleInit {
 
 
     async updateBroadcastStatus ( startBroadcastDto: StartBroadcastDto, action, currentDate: any = "" ) {
+        //Only start a fresh correlated run if the caller isn't already inside one (e.g. queueNewLeadForBroadcast) -
+        //otherwise this stays part of the caller's existing trail instead of fragmenting it.
+        if ( !getVoiceBroadcastLogContext().run_id ) {
+            return runWithVoiceBroadcastLogContext(
+                { tenant_uuid: startBroadcastDto?.tenant_uuid as string, voice_broadcast_uuid: startBroadcastDto?.voice_broadcast_uuid as string },
+                () => this.updateBroadcastStatus( startBroadcastDto, action, currentDate )
+            );
+        }
+
         try {
             const { voice_broadcast_uuid, tenant_uuid } = startBroadcastDto;
-            /*let broadcast_status = action == "in-progress" ? "1" : "3";
-            let response = await this.voice_broadcast.updateOne({ uuid: voice_broadcast_uuid }, { broadcast_status }, { $upsert: true }).exec();
-
-            if (response.modifiedCount > 0) {
-                Logger.debug(`Broadcast status of : ${voice_broadcast_uuid} set to === ${broadcast_status}: ${action.toUpperCase()} \n`);
-            } else {
-                Logger.error(`Unable to update broadcast status of : ${voice_broadcast_uuid} \n`);
-            }*/
+            this.vbLogger.info( "broadcast.status_update_requested", `Broadcast status update requested : ${action}`, { action } );
 
             //Update cron status
-            let populateFileds = [ { path: "outgoing_rules", select: "rules" } ];
+            let populateFileds = [ { path: "outgoing_rules", select: "uuid rules route_type no_cli_mode" } ];
             let voiceBroadcastData: any = await this.voice_broadcast.findOne( { uuid: voice_broadcast_uuid } ).populate( populateFileds ).exec();
             let { channel, caller_id, start_date, end_date, amd, caller_id_type,skip }: any = voiceBroadcastData;
 
@@ -552,30 +687,23 @@ export class VoiceBroadcastService implements OnModuleInit {
                 let addTwoMinutesInCurrentDate = new Date();
                 addTwoMinutesInCurrentDate.setMinutes( addTwoMinutesInCurrentDate.getMinutes() + 1 );
                 start_date = this.getFormattedDate( addTwoMinutesInCurrentDate );
-                Logger.warn( `Broadcast was stopped in between, so it will start on current date time on action of start button again ==> NEW START DATE : ${start_date}\n` );
+                this.vbLogger.debug( "broadcast.start_date_reset", `Broadcast will start on current date time ==> NEW START DATE : ${start_date}`, { start_date } );
             } else {
-                Logger.error( `End date time has been passed , no calls will initiate with broadcast : ${voice_broadcast_uuid}` );
+                this.vbLogger.error( "broadcast.end_date_passed", `End date time has passed, no calls will initiate with broadcast : ${voice_broadcast_uuid}`, { end_date } );
                 this.updateBroadCastFlag( voice_broadcast_uuid, "3" );
                 return this.commonDbFn.sendResponseWithMessage( HttpStatus.BAD_REQUEST, `Broadcast end date time should be any future date` );
             }
 
             let rules = await this.getRulesWithTrunk( voiceBroadcastData.outgoing_rules[ 0 ].rules );
-            Logger.warn( `RULES`, rules );
+            this.vbCliRules[ String( voice_broadcast_uuid ) ] = isCliRoute( voiceBroadcastData.outgoing_rules[ 0 ] ) ? voiceBroadcastData.outgoing_rules[ 0 ] : null;
 
             //Update cron status
             let broadcast_status = action == "in-progress" ? "1" : "3";
             await this.updateBroadCastFlag( voice_broadcast_uuid, broadcast_status );
-            /*let response = await this.voice_broadcast.updateOne({ uuid: voice_broadcast_uuid }, { broadcast_status }, { $upsert: true }).exec();
-
-            if (response.modifiedCount > 0) {
-                Logger.debug(`Broadcast status of : ${voice_broadcast_uuid} set to === ${broadcast_status}: ${action.toUpperCase()} \n`);
-            } else {
-                Logger.error(`Unable to update broadcast status of : ${voice_broadcast_uuid} \n`);
-            }*/
 
             this.updateCronStatus( start_date, end_date, voice_broadcast_uuid, action, tenant_uuid, channel, caller_id, rules, amd, caller_id_type,skip );
         } catch ( error: any ) {
-            Logger.error( `Error in catch block \n`, error.message );
+            this.vbLogger.error( "broadcast.status_update_failed", `Error updating broadcast status : ${error.message}`, { stack: error.stack } );
         }
     }
 
@@ -589,28 +717,29 @@ export class VoiceBroadcastService implements OnModuleInit {
         try {
             if ( action == "in-progress" ) {
                 //Create dynamic cron job here
-                const job = new CronJob( new Date( startDate ), async () => {
-                    Logger.debug( `Voice broadcast with uuid : ${voiceBroadcastUUID} has been started at ${startDate} \n`, new Date() );
-                    await this.updateBroadCastFlag( voiceBroadcastUUID, "2" );
-                    /*let response = await this.voice_broadcast.updateOne({ uuid: voiceBroadcastUUID }, { broadcast_status: "2" }, { $upsert: true }).exec();
-
-                    if (response.modifiedCount > 0) {
-                        Logger.debug(`Broadcast status of : ${voiceBroadcastUUID} set to == 2 : RUNNNIG \n`);
-                    } else {
-                        Logger.error(`Unable to update broadcast status of : ${voiceBroadcastUUID} \n`);
-                    }*/
-                    this.initiateBroadcastCalls( voiceBroadcastUUID, tenant_uuid, endDate, channel, caller_id, outgoingRulesDetails, amd, caller_id_type ,skip);
+                const scheduledFor = new Date( startDate );
+                const job = new CronJob( scheduledFor, async () => {
+                    const actualFireTime = new Date();
+                    const driftMs = actualFireTime.getTime() - scheduledFor.getTime();
+                    //Fresh run_id per dial session - the HTTP request that scheduled this may have completed
+                    //long before the cron fires, so this starts its own correlated trail for the whole dial run.
+                    await runWithVoiceBroadcastLogContext( { tenant_uuid, voice_broadcast_uuid: voiceBroadcastUUID }, async () => {
+                        this.vbLogger.info( "broadcast.dial_session_started", `Voice broadcast started (scheduled for ${startDate}, fired at ${this.getFormattedDate( actualFireTime )}, drift ${driftMs}ms)`, { scheduled_for: startDate, fired_at: this.getFormattedDate( actualFireTime ), drift_ms: driftMs } );
+                        await this.updateBroadCastFlag( voiceBroadcastUUID, "2" );
+                        this.initiateBroadcastCalls( voiceBroadcastUUID, tenant_uuid, endDate, channel, caller_id, outgoingRulesDetails, amd, caller_id_type ,skip);
+                    } );
                 } );
                 job.start();
-                Logger.verbose( `Broadcast : ${voiceBroadcastUUID} has been scheduled at : ${startDate}  with end date : ${endDate}` );
+                const schedule = this.describeSchedule( scheduledFor );
+                this.vbLogger.info( "broadcast.scheduled", `Broadcast scheduled to start at ${schedule.at} (${schedule.human}), end date : ${endDate}`, { next_run_at: schedule.at, starts_in_seconds: schedule.in_seconds, endDate } );
             } else {
                 if ( this.stoppedBroadcastList.includes( voiceBroadcastUUID ) == false ) {
                     this.stoppedBroadcastList.push( voiceBroadcastUUID );
                 }
-                Logger.warn( `Stopped Broadcast List :${JSON.stringify( this.stoppedBroadcastList )} \n` );
+                this.vbLogger.debug( "broadcast.stop_requested", `Broadcast added to stopped list`, { stoppedBroadcastList: this.stoppedBroadcastList } );
             }
         } catch ( error: any ) {
-            Logger.error( `Error in catch block === updateCronStatus()`, error.message );
+            this.vbLogger.error( "broadcast.cron_schedule_failed", `Error scheduling broadcast cron : ${error.message}`, { stack: error.stack } );
         }
     }
 
@@ -643,12 +772,10 @@ export class VoiceBroadcastService implements OnModuleInit {
 
             let delayValue = Math.floor( 60 / channel );
             delayValue = delayValue * 1000;
-            Logger.debug( `BroadcastUUID : ${voiceBroadcastUUID} Sending calls with delay : ${delayValue / 1000} SECONDS \n` );
-
-            Logger.verbose( `Voice broadcasting started successfully...... : BroadcastUUID : ${voiceBroadcastUUID} \n` );
+            this.vbLogger.info( "broadcast.dial_batch_configured", `Sending calls with delay : ${delayValue / 1000} seconds`, { delaySeconds: delayValue / 1000, channel, lead_group_uuid: allLgUuids } );
             this.startSendingCalls( channel, delayValue, endDate, tenant_uuid, voiceBroadcastUUID, caller_id, allLgUuids, outgoingRulesDetails, amd, caller_id_type,skip );
         } catch ( error: any ) {
-            Logger.error( `Error in catch block`, error.message );
+            this.vbLogger.error( "broadcast.initiate_failed", `Error initiating broadcast calls : ${error.message}`, { stack: error.stack }, { voice_broadcast_uuid: voiceBroadcastUUID } );
         }
     }
 
@@ -665,7 +792,7 @@ export class VoiceBroadcastService implements OnModuleInit {
         }
 
         if ( missingLgUuids.length > 0 ) {
-            Logger.log( `Populating missing lead groups in queue for broadcast ${voiceBroadcastUUID}: ${missingLgUuids.join( ', ' )}` );
+            this.vbLogger.debug( "broadcast.queue_gap_detected", `Populating missing lead groups in queue`, { lead_group_uuid: missingLgUuids }, { voice_broadcast_uuid: voiceBroadcastUUID } );
             let result = await this.lead_management.find( {
                 lead_group_uuid: { $in: missingLgUuids },
                 tenant_uuid,
@@ -684,7 +811,7 @@ export class VoiceBroadcastService implements OnModuleInit {
                 } );
                 if ( allLeadsArr.length > 0 ) {
                     await this.lead_broadcast_queue.insertMany( allLeadsArr );
-                    Logger.debug( `Populated ${allLeadsArr.length} leads in lead broadcast queue for missing lead groups: ${missingLgUuids.join( ', ' )}` );
+                    this.vbLogger.debug( "broadcast.queue_gap_filled", `Populated ${allLeadsArr.length} leads in lead broadcast queue for missing lead groups`, { queued: allLeadsArr.length, lead_group_uuid: missingLgUuids }, { voice_broadcast_uuid: voiceBroadcastUUID } );
 
                     let lgQuery: any = allLgUuids.length > 1 ? { $in: allLgUuids } : allLgUuids[ 0 ];
                     let mainQueueCount = await this.main_broadcast_queue.countDocuments( { tenant_uuid, lead_group_uuid: lgQuery } );
@@ -715,16 +842,16 @@ export class VoiceBroadcastService implements OnModuleInit {
     async startSendingCalls ( channel, delayValue, end_date, tenant_uuid, voiceBroadcastUUID, caller_id, lead_group_uuid, outgoingRulesDetails, amd, caller_id_type,skip ) {
         let mainBroadcastData, trunkDetails: any, deleteLeads = [], leadNumber, leadDetails;
         let currentDateTime = this.commonFn.getTodayDate( true );
-        let tenant_details = await this.tenant.findOne( { tenant_uuid } ).select( "account_code,domain" ).exec();
-        console.log( "accountcode" );
-        console.log( tenant_details );
+        let tenant_details = await this.tenant.findOne( { uuid: tenant_uuid } ).select( "account_code,domain" ).exec();
         let account_code,tenant_domain;
         if ( tenant_details != null ) {
             account_code = tenant_details.account_code;
             tenant_domain = tenant_details.domain;
+        } else {
+            this.vbLogger.warn( "broadcast.tenant_lookup_missing", `No tenant found for tenant_uuid : ${tenant_uuid}, account_code/domain will be undefined`, {}, { voice_broadcast_uuid: voiceBroadcastUUID } );
         }
-        console.log( 'accountcode ============>', account_code );
-        Logger.log( `CurrentDateTime : ${currentDateTime} & BroadcastEndTime : ${end_date} \n` );
+        const nextBatchEta = this.describeSchedule( new Date( Date.now() + channel * delayValue ) );
+        this.vbLogger.info( "broadcast.dial_batch_started", `Batch of ${channel} call(s) starting, next batch expected at ${nextBatchEta.at} (${nextBatchEta.human})`, { currentDateTime, end_date, channel, delaySeconds: delayValue / 1000, next_batch_at: nextBatchEta.at, next_batch_in_seconds: nextBatchEta.in_seconds }, { voice_broadcast_uuid: voiceBroadcastUUID } );
 	// Convert strings → Date
         const now = new Date(currentDateTime.replace(' ', 'T'));
         const end = new Date(end_date.replace(' ', 'T'));
@@ -745,17 +872,10 @@ export class VoiceBroadcastService implements OnModuleInit {
                     mainBroadcastData = await this.main_broadcast_queue.find( { tenant_uuid, lead_group_uuid: lgQuery } ).populate( populateFields ).limit( 100 ).exec();
 
                     if ( mainBroadcastData.length == 0 ) {
-                        Logger.warn( `No data found in main broadcast, fetching from lead broadcast \n` );
+                        this.vbLogger.debug( "broadcast.hopper_empty", `No data in main broadcast hopper, fetching from lead broadcast queue`, {}, { voice_broadcast_uuid: voiceBroadcastUUID } );
                         mainBroadcastData = await this.fetchNext100Leads( tenant_uuid, lgQuery );
                         if ( mainBroadcastData == null ) {
-                            Logger.error( `No data found in lead broadcast ==> lead_group_uuid : ${JSON.stringify(lead_group_uuid)} & tenant_uuid : ${tenant_uuid} , so broadcast : ${voiceBroadcastUUID} has been ended!! \n` );
-                            /*let response = await this.voice_broadcast.updateOne({ uuid: voiceBroadcastUUID }, { broadcast_status: "3" }, { $upsert: true }).exec();
-
-                            if (response.modifiedCount > 0) {
-                                Logger.debug(`Broadcast status of : ${voiceBroadcastUUID} set to == 3 : STOP \n`);
-                            } else {
-                                Logger.error(`Unable to update broadcast status of : ${voiceBroadcastUUID} \n`);
-                            }*/
+                            this.vbLogger.info( "broadcast.ended_no_leads", `No leads left for broadcast, ending it`, { lead_group_uuid }, { voice_broadcast_uuid: voiceBroadcastUUID } );
                             await this.updateBroadCastFlag( voiceBroadcastUUID, "3" );
                             return;
                         }
@@ -770,7 +890,7 @@ export class VoiceBroadcastService implements OnModuleInit {
                         let loopNow = new Date( loopNowStr.replace( ' ', 'T' ) );
                         let loopEnd = new Date( end_date.replace( ' ', 'T' ) );
                         if ( loopNow >= loopEnd ) {
-                            Logger.warn( `End time ${end_date} reached mid-batch at ${loopNowStr}, stopping calls for broadcast: ${voiceBroadcastUUID}` );
+                            this.vbLogger.info( "broadcast.ended_end_time_reached", `End time ${end_date} reached mid-batch at ${loopNowStr}, stopping calls`, { end_date, loopNowStr }, { voice_broadcast_uuid: voiceBroadcastUUID } );
                             await this.updateBroadCastFlag( voiceBroadcastUUID, "3" );
                             // Delete any leads we already processed in this batch
                             if ( deleteLeads.length > 0 ) {
@@ -782,7 +902,7 @@ export class VoiceBroadcastService implements OnModuleInit {
                         // Re-check if broadcast was manually stopped/paused
                         let isStopped = await this.checkBroadcastStatus( voiceBroadcastUUID );
                         if ( isStopped === true ) {
-                            Logger.warn( `Broadcast ${voiceBroadcastUUID} was stopped mid-batch, halting calls` );
+                            this.vbLogger.info( "broadcast.stopped_mid_batch", `Broadcast was stopped mid-batch, halting calls`, {}, { voice_broadcast_uuid: voiceBroadcastUUID } );
                             // Remove from stoppedBroadcastList (same cleanup as existing stop flow)
                             let stopIndex = this.stoppedBroadcastList.indexOf( voiceBroadcastUUID );
                             if ( stopIndex > -1 ) this.stoppedBroadcastList.splice( stopIndex, 1 );
@@ -799,13 +919,37 @@ export class VoiceBroadcastService implements OnModuleInit {
                             new_caller_id = await this.getCallerID( caller_id_type, caller_id, this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details[ 0 ]?.phone_number );
                             // new_caller_id = await this.getCallerID( caller_id_type, caller_id, this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details[ 0 ]?.custom_phone_number );
                         }
-console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details);
-
-                        if ( this.allBroadcastDatas[ voiceBroadcastUUID ].length > 0 ) {
+                        const cliRule = this.vbCliRules[ voiceBroadcastUUID ];
+                        if ( this.allBroadcastDatas[ voiceBroadcastUUID ].length > 0 && cliRule ) {
+                            // CLI based route : route, CLI & To number decided by caller id
+                            const toNumber = this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details[ 0 ]?.phone_number;
+                            const cliRoute: any = await resolveCliRoute( cliRule, new_caller_id, toNumber, () => nextCliRouteRoundRobin( this.trunk.db, cliRule?.uuid ) );
+                            this.vbLogger.info( "broadcast.cli_route", `CLI route for ${toNumber}`, { caller_id: new_caller_id, cli_route: cliRoute }, { voice_broadcast_uuid: voiceBroadcastUUID } );
+                            if ( cliRoute.ok ) {
+                                const [ failover1, failover2 ] = cliRoute.failovers || [];
+                                const primaryTrunk = await this.trunk.findOne( { uuid: cliRoute.primary.trunk_uuid }, { name: 1, _id: 0 } ).exec();
+                                const failoverTrunk1 = failover1 ? await this.trunk.findOne( { uuid: failover1.trunk_uuid }, { name: 1, _id: 0 } ).exec() : null;
+                                const failoverTrunk2 = failover2 ? await this.trunk.findOne( { uuid: failover2.trunk_uuid }, { name: 1, _id: 0 } ).exec() : null;
+                                new_caller_id = cliRoute.primary.cli;
+                                trunkDetails = {
+                                    lead_number: cliRoute.primary.to,
+                                    trunkName: primaryTrunk?.name,
+                                    failoverTrunk1Name: failoverTrunk1?.name || "",
+                                    failoverTrunk2Name: failoverTrunk2?.name || "",
+                                    failoverCallId1: failover1?.cli || "",
+                                    failoverCallId2: failover2?.cli || "",
+                                    failoverNumber1: failover1?.to || "",
+                                    failoverNumber2: failover2?.to || ""
+                                };
+                            } else {
+                                // CLI not configured in route : call is not generated
+                                trunkDetails = undefined;
+                            }
+                            leadNumber = trunkDetails?.lead_number;
+                        } else if ( this.allBroadcastDatas[ voiceBroadcastUUID ].length > 0 ) {
                             trunkDetails = await this.getTrunkUUID( outgoingRulesDetails, this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details[ 0 ]?.phone_number );
                             // trunkDetails = await this.getTrunkUUID( outgoingRulesDetails, this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ]?.lead_details[ 0 ]?.custom_phone_number );
                             leadNumber = trunkDetails.lead_number;
-                            Logger.warn( `Trunk Details`, JSON.stringify( trunkDetails ) );
                         }
 
                         //Check if any required param is missing for generating call
@@ -832,15 +976,16 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                             secondaryTrunk: trunkDetails.failoverTrunk1Name || "",
                             tertiaryTrunk: trunkDetails.failoverTrunk2Name || "",
                             failover_call_id_1: trunkDetails.failoverCallId1 || "",
-                            failover_call_id_2: trunkDetails.failoverCallId2 || ""
+                            failover_call_id_2: trunkDetails.failoverCallId2 || "",
+                            failover_number_1: trunkDetails.failoverNumber1 || "",
+                            failover_number_2: trunkDetails.failoverNumber2 || ""
                         };
                         this.commonFn.getUUIDForCall( voiceBroadcastUUID, tenant_uuid, "", leadDetails, new_caller_id, broadcastTrunkParam, "30", "", "1", "", amd, "broadcast", "", tenant_domain, account_code ,"",skip);
-
-                        //console.log(`Sent call ${i} broadcast : ${voiceBroadcastUUID} LEAD : ${this.allBroadcastDatas[voiceBroadcastUUID][0].lead_details[0]}`);
-
+                        this.vbLogger.info( "broadcast.call_dispatched", `Call dispatched to ${leadNumber}`, { lead_number: leadNumber, trunkName: trunkDetails.trunkName, caller_id: new_caller_id }, { voice_broadcast_uuid: voiceBroadcastUUID, lead_management_uuid: leadDetails.lead_management_uuid } );
 
                     } catch ( error: any ) {
-                        Logger.error( `Error in catch block when sending calls`, error.message );
+                        const failedLead = this.allBroadcastDatas[ voiceBroadcastUUID ]?.[ 0 ]?.lead_details?.[ 0 ];
+                        this.vbLogger.error( "broadcast.call_dispatch_failed", `Error sending call : ${error.message}`, { stack: error.stack, phone_number: failedLead?.phone_number }, { voice_broadcast_uuid: voiceBroadcastUUID, lead_management_uuid: failedLead?.lead_management_uuid } );
                     }
                     deleteLeads.push( this.allBroadcastDatas[ voiceBroadcastUUID ][ 0 ].uuid );
                     this.allBroadcastDatas[ voiceBroadcastUUID ].splice( 0, 1 );
@@ -858,20 +1003,14 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                     } );
                 }
 
-                /*this.totalCallSent.push({
-                            count: deleteLeads.length,
-                            broadcastUUID: voiceBroadcastUUID
-                        });*/
-
-                Logger.log( `COUNT_DETAILS`, this.totalCallSent );
                 //Delete lead from main_broadcast_queue
                 await this.main_broadcast_queue.deleteMany( { tenant_uuid, lead_group_uuid: lgQuery, uuid: { $in: deleteLeads } } );
-                Logger.verbose( `${channel} calls sent successfully with delay of : ${delayValue / 1000} seconds , sending next ${channel} calls if & only if broadcast status not equal to STOP or broadcast not ended \n` );
+                this.vbLogger.info( "broadcast.dial_batch_completed", `${channel} calls sent successfully with delay of : ${delayValue / 1000} seconds`, { channel, delaySeconds: delayValue / 1000, total_sent: data ? data.count : deleteLeads.length }, { voice_broadcast_uuid: voiceBroadcastUUID } );
 
                 let broadcastStatus = await this.checkBroadcastStatus( voiceBroadcastUUID );
                 //Do next calls if broadcast not reached to end date
                 if ( broadcastStatus == true ) { //Stop sending calls
-                     Logger.warn( `Original end date time of broadcast : ${voiceBroadcastUUID} was ${end_date} , but due to stop action , no new calls will initiate from next minutes \n` );
+                     this.vbLogger.info( "broadcast.stop_action_applied", `Broadcast end date was ${end_date}, but due to stop action no new calls will initiate from next minute`, { original_end_date: end_date }, { voice_broadcast_uuid: voiceBroadcastUUID } );
                      end_date = this.commonFn.getTodayDate( true );
                 }
 
@@ -892,7 +1031,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                 this.stoppedBroadcastList.splice( index, 1 );
                 let text = broadcastStatus == true ? "stopped" : "ended";
 
-                Logger.warn( `Broadcast with uuid : ${voiceBroadcastUUID} has been ${text} , so no more calls will initiate from this broadcast \n` );
+                this.vbLogger.info( "broadcast.dial_session_ended", `Broadcast has been ${text}, no more calls will initiate`, { end_reason: text }, { voice_broadcast_uuid: voiceBroadcastUUID } );
                 await this.updateBroadCastFlag( voiceBroadcastUUID, "3" );
                 /* let response = await this.voice_broadcast.updateOne({ uuid: voiceBroadcastUUID }, { broadcast_status: "3" }, { $upsert: true }).exec();
 
@@ -905,7 +1044,7 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
 
             }
         } catch ( error: any ) {
-            Logger.error( `Error in catch block ==== startSendingCalls()`, error.message );
+            this.vbLogger.error( "broadcast.dial_batch_failed", `Error in startSendingCalls() : ${error.message}`, { stack: error.stack }, { voice_broadcast_uuid: voiceBroadcastUUID } );
         }
     }
 
@@ -972,6 +1111,24 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
         let seconds = dateTime.getSeconds();
         seconds = seconds < 10 ? `0${seconds}` : seconds;
         return `${year}-${month}-${date} ${hour}:${minutes}:${seconds}`;
+    }
+
+    /*
+    @Usage            : To describe a scheduled time relative to now, for cron/dial-batch timing logs
+                         (e.g. "in 54s" or "overdue by 3s"), so log lines are readable without diffing timestamps across lines.
+    @Param  targetDate : Date the job/batch is scheduled to run at
+    @return Object      : { at: formatted target time, in_seconds: signed delta, human: readable delta }
+    */
+
+    describeSchedule ( targetDate: Date ) {
+        const deltaMs = targetDate.getTime() - Date.now();
+        const deltaSeconds = Math.round( deltaMs / 1000 );
+        const absSeconds = Math.abs( deltaSeconds );
+        const minutes = Math.floor( absSeconds / 60 );
+        const seconds = absSeconds % 60;
+        const durationStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        const human = deltaSeconds >= 0 ? `in ${durationStr}` : `overdue by ${durationStr}`;
+        return { at: this.getFormattedDate( targetDate ), in_seconds: deltaSeconds, human };
 
     }
 
@@ -1243,9 +1400,10 @@ console.log("this.allBroadcastDatas[ voiceBroadcastUUID ]",this.allBroadcastData
                     action = "STOP"
                     break;
             }
-            Logger.debug( `Broadcast status of : ${voice_broadcast_uuid} set to === ${action}\n` );
+            this.vbLogger.debug( "broadcast.flag_updated", `Broadcast status set to ${action}`, { broadcast_status, action }, { voice_broadcast_uuid } );
         } else {
-            Logger.error( `Unable to update broadcast status of : ${voice_broadcast_uuid} \n` );
+            //Not necessarily an error - a no-op update (status already at target value) hits this branch too.
+            this.vbLogger.warn( "broadcast.flag_update_no_op", `Broadcast status update to ${broadcast_status} did not modify any document (already at that status, or not found)`, { broadcast_status }, { voice_broadcast_uuid } );
         }
     }
 }

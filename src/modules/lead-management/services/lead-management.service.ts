@@ -31,6 +31,8 @@ import { TenantSchema } from "src/modules/tenant/schema/tenant.schema";
 import { OutboundCampaignService } from "src/modules/campaigns/outbound-campaign/services/outbound-campaign.service";
 import { BlendedCampaignService } from "src/modules/campaigns/blended-campaign/services/blended-campaign.service";
 import { ResetLeadDto } from "src/modules/campaigns/outbound-campaign/dto/reset-lead.dto";
+import { PipelineAutoImportService } from "src/modules/kanban/services/pipeline-auto-import.service";
+import { VoiceBroadcastService } from "src/modules/voice-broadcast/services/voice-broadcast.service";
 
 @Injectable()
 
@@ -64,7 +66,9 @@ export class LeadManagementService {
 
         private readonly commonDbFn: CommonDBFunctions,
         private readonly outboundCampaignService: OutboundCampaignService,
-        private readonly blendedCampaignService: BlendedCampaignService
+        private readonly blendedCampaignService: BlendedCampaignService,
+        private readonly pipelineAutoImportService: PipelineAutoImportService,
+        private readonly voiceBroadcastService: VoiceBroadcastService
     ) { }
 
     /*
@@ -121,6 +125,12 @@ export class LeadManagementService {
         //Bind created lead with cdrs and notes
         if (from != "" && from == "cdrs") {
             this.bindLeadWithCdrsAndNotes(cdrs_uuid, response.message.lead_management_uuid);
+        }
+
+        // ── Auto-import to pipeline (fire-and-forget, never blocks response) ──
+        const savedLead = response.message;
+        if (savedLead) {
+            this.pipelineAutoImportService.tryAutoImport(savedLead).catch(() => {});
         }
 
         delete response.message;
@@ -238,15 +248,40 @@ export class LeadManagementService {
                     await this.outboundCampaignService.resetLeads(resetLeadDto);
                 }
                 Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
-            } catch (error) {
+            } catch (error: any) {
                 Logger.error(`Error calling resetLeads: ${error.message}`);
             }
         }
 
+        let voice_broadcast: any;
+        if (createLeadManagementDto.vb_auto_churn) {
+            try {
+                voice_broadcast = await this.voiceBroadcastService.queueNewLeadForBroadcast(
+                    createLeadManagementDto.tenant_uuid as string,
+                    { lead_management_uuid: response.message.lead_management_uuid, lead_group_uuid: lead_group_uuid as string },
+                    createLeadManagementDto.voice_broadcast_uuid
+                );
+            } catch (error: any) {
+                Logger.error(`Error auto-queueing lead ${response.message.lead_management_uuid} for voice broadcast (tenant ${createLeadManagementDto.tenant_uuid})`, error.message);
+                voice_broadcast = { queued: false, voice_broadcast_uuid: createLeadManagementDto.voice_broadcast_uuid || null, reason: "queue_error" };
+            }
+        }
+
         if (createLeadManagementDto.webhook === true) {
-            return { statusCode: response?.statusCode, message: response?.data, lead_uuid: response?.message?.lead_management_uuid }
+            // ── Auto-import to pipeline (fire-and-forget) ──
+            const savedLead = response.message;
+            if (savedLead) {
+                this.pipelineAutoImportService.tryAutoImport(savedLead).catch(() => {});
+            }
+            return { statusCode: response?.statusCode, message: response?.data, lead_uuid: response?.message?.lead_management_uuid, ...(voice_broadcast ? { voice_broadcast } : {}) }
         } else {
+            // ── Auto-import to pipeline (fire-and-forget) ──
+            const savedLead = response.message;
+            if (savedLead) {
+                this.pipelineAutoImportService.tryAutoImport(savedLead).catch(() => {});
+            }
             delete response.message;
+            if (voice_broadcast) response.voice_broadcast = voice_broadcast;
             return response;
         }
     }
@@ -275,6 +310,12 @@ export class LeadManagementService {
 
         // ✅ Insert only — no leads_count_update, no leadgroup_count_update, no resetLeads
         let response = await this.commonDbFn.findAndInsert(this.lead_management, where, createLeadManagementDto, JSON.stringify(logMessages), "and", true);
+
+        // ── Auto-import to pipeline (fire-and-forget for Google Sheet sync or direct calls) ──
+        const savedLead = response?.message;
+        if (savedLead) {
+            this.pipelineAutoImportService.tryAutoImport(savedLead).catch(() => {});
+        }
 
         return response;
     }
@@ -344,7 +385,7 @@ export class LeadManagementService {
             if (lead_status != dncDispositionUUID) {
                 createLeadManagementDto.in_dnc = "1";
             }
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Unable to find uuid of DNC`, error.message);
         }
         createLeadManagementDto.created_flag = "1";
@@ -379,6 +420,14 @@ export class LeadManagementService {
             })
         }
         res.logSuccessMsg = res.logSuccessMsg.split("by")[0].trim();
+
+        // ── Auto-import to pipeline on disposition update ──
+        if (createLeadManagementDto.lead_status) {
+            this.lead_management.findOne({ lead_management_uuid }).lean().then(updatedLead => {
+                if (updatedLead) this.pipelineAutoImportService.tryAutoImport(updatedLead).catch(() => {});
+            }).catch(() => {});
+        }
+
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, res.logSuccessMsg);
         //return this.commonDbFn.update(this.lead_management, lead_management_uuid, createLeadManagementDto, JSON.stringify(logMessages));
     }
@@ -424,7 +473,7 @@ export class LeadManagementService {
             if (lead_status != dncDispositionUUID) {
                 createLeadManagementDto.in_dnc = "1";
             }
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Unable to find uuid of DNC`, error.message);
         }
         createLeadManagementDto.created_flag = "1";
@@ -477,9 +526,18 @@ export class LeadManagementService {
                     await this.outboundCampaignService.resetLeads(resetLeadDto);
                 }
                 Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid}`);
-            } catch (error) {
+            } catch (error: any) {
                 Logger.error(`Error calling resetLeads: ${error.message}`);
             }
+        }
+
+        res.logSuccessMsg = res.logSuccessMsg.split("by")[0].trim();
+
+        // ── Auto-import to pipeline on disposition update ──
+        if (createLeadManagementDto.lead_status) {
+            this.lead_management.findOne({ lead_management_uuid }).lean().then(updatedLead => {
+                if (updatedLead) this.pipelineAutoImportService.tryAutoImport(updatedLead).catch(() => {});
+            }).catch(() => {});
         }
 
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, res.logSuccessMsg);
@@ -796,9 +854,15 @@ export class LeadManagementService {
             insertedRecords = leadArr != undefined ? leadArr.length : 0;
             if (insertedRecords != 0) {
                 await this.lead_management.insertMany(leadArr, { ordered: false });
+                // ── Auto-import batch to pipeline (fire-and-forget) ──
+                this.pipelineAutoImportService.tryAutoImportMany(leadArr).catch(() => {});
             }
-        } catch (error) {
+        } catch (error: any) {
             insertedRecords = error?.result?.nInserted != undefined ? error.result.nInserted : 0;
+            // In case of partial insertion, also attempt auto-import
+            if (leadArr && leadArr.length > 0) {
+                this.pipelineAutoImportService.tryAutoImportMany(leadArr).catch(() => {});
+            }
         }
         recordText = insertedRecords <= 1 ? "record" : "records";
         // fs.unlink(`${process.env.UPLOAD_DIRECTORY}${file}`, (result) => {
@@ -832,7 +896,7 @@ export class LeadManagementService {
                     await this.outboundCampaignService.resetLeads(resetLeadDto);
                 }
                 Logger.debug(`Reset leads called successfully for campaign: ${campaign_uuid} after import`);
-            } catch (error) {
+            } catch (error: any) {
                 Logger.error(`Error calling resetLeads after import: ${error.message}`);
             }
         }
@@ -887,7 +951,7 @@ export class LeadManagementService {
                 ).exec();
                 Logger.warn(`No wrap_up_disposition found for campaign, falling back to NEW status`);
             }
-        } catch (error) {
+        } catch (error: any) {
             Logger.error("Unable to fetch campaign disposition", error.message);
             // Fallback to "NEW" on error
             try {
@@ -895,7 +959,7 @@ export class LeadManagementService {
                     { code: "NEW" },
                     { disposition_uuid: 1, _id: 0 }
                 ).exec();
-            } catch (fallbackError) {
+            } catch (fallbackError: any) {
                 Logger.error("Unable to fetch NEW disposition as fallback", fallbackError.message);
             }
         }
@@ -999,6 +1063,13 @@ export class LeadManagementService {
         if (from != "" && from == "cdrs") {
             this.bindLeadWithCdrsAndNotes(cdrs_uuid, response.message.lead_management_uuid);
         }
+
+        // ── Auto-import to pipeline (fire-and-forget) ──
+        const savedAgentLead = response.message;
+        if (savedAgentLead) {
+            this.pipelineAutoImportService.tryAutoImport(savedAgentLead).catch(() => {});
+        }
+
         delete response.message;
         return response;
         //return this.commonDbFn.insert(this.lead_management, agentLeadManagementDto, JSON.stringify(logMessages));
@@ -1031,6 +1102,14 @@ export class LeadManagementService {
         await this.whatsappmessage.updateMany({ lead_management_uuid }, { name: agentLeadManagementDto.first_name + " " + agentLeadManagementDto.last_name })
         Logger.debug(res.logSuccessMsg);
         res.logSuccessMsg = res.logSuccessMsg.split("by")[0].trim();
+
+        // ── Auto-import to pipeline on agent disposition update ──
+        if (agentLeadManagementDto.lead_status) {
+            this.lead_management.findOne({ lead_management_uuid }).lean().then(updatedLead => {
+                if (updatedLead) this.pipelineAutoImportService.tryAutoImport(updatedLead).catch(() => {});
+            }).catch(() => {});
+        }
+
         return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, res.logSuccessMsg);
         //return this.commonDbFn.update(this.lead_management, lead_management_uuid, agentLeadManagementDto, JSON.stringify(logMessages));
     }
@@ -1095,7 +1174,7 @@ export class LeadManagementService {
                         await this.commonDbFn.leads_in_queue_count_update(this.leads_in_queue, this.outbound_campaign, campaign_uuid);
                     }
                 }
-            } catch (err) {
+            } catch (err: any) {
                 console.log("Error in creating lead", err.message);
             }
         }
@@ -1175,7 +1254,7 @@ export class LeadManagementService {
                 await this.assignUserUuid(leadArr, user_uuid);
                 await this.lead_management.insertMany(leadArr, { ordered: false });
             }
-        } catch (error) {
+        } catch (error: any) {
             insertedRecords = error?.result?.nInserted != undefined ? error.result.nInserted : 0;
         }
         recordText = insertedRecords <= 1 ? "record" : "records";
@@ -1271,7 +1350,7 @@ export class LeadManagementService {
         try {
             disposition_uuid = await this.disposition.findOne({ code: "NEW" }, { disposition_uuid: 1, _id: 0 }).exec();
             campaignUUID = await this.lead_group.findOne({ uuid: lead_group_uuid }, { campaign_uuid: 1, campaign_flag: 1, _id: 0 }).exec();
-        } catch (error) {
+        } catch (error: any) {
             Logger.error("Unable to fetch disposition OR Campaign", error.message);
         }
         //End
@@ -1333,7 +1412,7 @@ export class LeadManagementService {
 
     async leadBatchUpdate(leadBatchUpdateDto: LeadBatchUpdateDto) {
         console.log("leadBatchUpdateDto", leadBatchUpdateDto);
-        const { user_uuid, lead_status, lead_group_uuid, tenant_uuid, first_name, first_name_flag, last_name_flag, phone_number_flag, phone_code_flag, last_name, phone_code, phone_number, user_uuid_filter, lead_status_filter, lead_group_uuid_filter } = leadBatchUpdateDto;
+        const { user_uuid, lead_status, lead_group_uuid, campaign_uuid, tenant_uuid, first_name, first_name_flag, last_name_flag, phone_number_flag, phone_code_flag, last_name, phone_code, phone_number, user_uuid_filter, lead_status_filter, lead_group_uuid_filter, campaign_uuid_filter } = leadBatchUpdateDto;
         // const { 'first_name?i': firstName } = leadBatchUpdateDto;
         // const firstName = leadBatchUpdateDto[ 'first_name?i' ];
         let where: any = [];
@@ -1551,17 +1630,29 @@ export class LeadManagementService {
             where.push({ lead_group_uuid: lead_group_uuid_filter })
         }
 
-        let updateBody = { lead_status, user_uuid, lead_group_uuid };
+        if (campaign_uuid_filter && (campaign_uuid_filter != "" || campaign_uuid_filter != undefined)) {
+            where.push({ campaign_uuid: campaign_uuid_filter })
+        }
+
+        let updateBody: any = { lead_status, user_uuid, lead_group_uuid, campaign_uuid };
 
         if (user_uuid == "" || user_uuid == undefined) delete updateBody.user_uuid;
         if (lead_status == "" || lead_status == undefined) delete updateBody.lead_status;
         if (lead_group_uuid == "" || lead_group_uuid == undefined) delete updateBody.lead_group_uuid;
+        if (campaign_uuid == "" || campaign_uuid == undefined) delete updateBody.campaign_uuid;
 
-        //Get campaign based on lead_group_uuid
-        if (lead_group_uuid != "" || lead_group_uuid != undefined) {
+        //Get campaign based on lead_group_uuid if campaign_uuid is not directly passed
+        if ((lead_group_uuid != "" && lead_group_uuid != undefined) && !updateBody["campaign_uuid"]) {
             let result = await this.lead_group.findOne({ uuid: lead_group_uuid, tenant_uuid }, { campaign_uuid: 1, campaign_flag: 1, _id: 0 }).exec();
             updateBody["campaign_uuid"] = result?.campaign_uuid;
             updateBody["campaign_flag"] = result?.campaign_flag;
+        } else if (campaign_uuid != "" && campaign_uuid != undefined) {
+            let outboundCamp = await this.outbound_campaign.findOne({ uuid: campaign_uuid, tenant_uuid }, { uuid: 1, _id: 0 }).exec();
+            if (outboundCamp) {
+                updateBody["campaign_flag"] = "outbound";
+            } else {
+                updateBody["campaign_flag"] = "blended";
+            }
         }
         if (lead_status) {
             updateBody["lead_status_1"] = "";
@@ -1610,7 +1701,7 @@ export class LeadManagementService {
                     await this.outboundCampaignService.resetLeads(resetLeadDto);
                 }
                 Logger.debug(`Reset leads called successfully for campaign: ${updateBody['campaign_uuid']} after batch update`);
-            } catch (error) {
+            } catch (error: any) {
                 Logger.error(`Error calling resetLeads after batch update: ${error.message}`);
             }
         }
@@ -1649,7 +1740,7 @@ export class LeadManagementService {
         let finalArray = [], obj;
 
         //Fetch lead details
-        let populateFileds = [{ path: "user", select: "username fullname -_id -uuid" }, { path: "tenant", select: "tenant_name -_id -uuid" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: "disposition", select: "name" }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }];
+        let populateFileds = [{ path: "user", select: "username fullname -_id -uuid" }, { path: "tenant", select: "tenant_name -_id -uuid" }, { path: "country", select: 'country nicename -_id -uuid' }, { path: 'disposition', select: "name" }, { path: "campaign_details", select: 'name -_id -uuid' }, { path: "blended_campaign_details", select: 'name -_id -uuid' }, { path: "inbound_campaign_details", select: 'name -_id -uuid' }, { path: "lead_group", select: "name -_id -uuid" }];
         let populateDisposition = [{ path: "user", select: "username fullname -_id" }, { path: "disposition_details", select: "name -_id" }];
         let leadData = await this.lead_management.find({ lead_management_uuid, tenant_uuid }).populate(populateFileds).exec();
         obj = { "lead_information": leadData };
@@ -1782,7 +1873,7 @@ export class LeadManagementService {
             } else {
                 Logger.error(`Unable to bind lead with notes cdrs_uuid : ${cdrs_uuid}`);
             }
-        } catch (error) {
+        } catch (error: any) {
             Logger.error(`Catch Block === Unable to bind lead`, error.message);
         }
     }

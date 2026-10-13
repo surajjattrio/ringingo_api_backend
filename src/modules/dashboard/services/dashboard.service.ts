@@ -1296,13 +1296,7 @@ export class DashboardService {
                                 connected_calls: { 
                                     $sum: { 
                                         $cond: [
-                                            { 
-                                                $and: [
-                                                    { $gt: [{ $toDouble: "$billsecond" }, 0] },
-                                                    { $eq: ["$call_state", "normal"] },
-                                                    { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }
-                                                ] 
-                                            }, 
+                                            { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }, 
                                             1, 0
                                         ] 
                                     } 
@@ -1312,8 +1306,13 @@ export class DashboardService {
                                         $cond: [
                                             { 
                                                 $and: [
-                                                    { $eq: ["$call_state", "missed"] },
-                                                    { $not: { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT"]] } }
+                                                    { $lte: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] },
+                                                    {
+                                                        $or: [
+                                                            { $eq: ["$call_state", "missed"] },
+                                                            { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT", "NO_ANSWER"]] }
+                                                        ]
+                                                    }
                                                 ] 
                                             }, 
                                             1, 0
@@ -1324,20 +1323,10 @@ export class DashboardService {
                                     $sum: { 
                                         $cond: [
                                             { 
-                                                $or: [
-                                                    { $eq: ["$call_state", "drop"] },
-                                                    { 
-                                                        $and: [
-                                                            { $eq: ["$call_state", "normal"] },
-                                                            { $eq: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }
-                                                        ] 
-                                                    },
-                                                    { 
-                                                        $and: [
-                                                            { $eq: ["$call_state", "missed"] },
-                                                            { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT"]] }
-                                                        ] 
-                                                    }
+                                                $and: [
+                                                    { $lte: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] },
+                                                    { $ne: ["$call_state", "missed"] },
+                                                    { $not: { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT", "NO_ANSWER"]] } }
                                                 ] 
                                             }, 
                                             1, 0

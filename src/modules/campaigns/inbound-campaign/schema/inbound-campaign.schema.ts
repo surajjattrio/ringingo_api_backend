@@ -83,6 +83,9 @@ export class InboundCampaignSchema {
   @Prop()
   auto_answer: String
 
+  @Prop({ default: "1" })
+  is_limechat: String
+
   @Prop()
   agent_script: String
 

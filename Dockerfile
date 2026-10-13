@@ -26,6 +26,13 @@ FROM node:24.11.1-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+
+ENV TZ=Asia/Kolkata
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
 ENV NODE_ENV=production
 RUN ls -la /app
 # Copy build output

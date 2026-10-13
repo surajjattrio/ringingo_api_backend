@@ -34,7 +34,7 @@ export class CommonFunctions {
                 };
             }
         } catch (error) {
-            Logger.error(`Unable to establish connection with FS, error.message`);
+            Logger.error(`Unable to establish connection with FS: ${error?.message}`);
         }
     }
 
@@ -143,16 +143,198 @@ export class CommonFunctions {
                 Logger.debug( `${sipProfileuuid}.xml has been written to file successfully.` );
             } );
             
-            fs.writeFile( gateway_file_name, xml_gateway.toString(), ( err ) => {
-                if ( err ) {
-                    Logger.error( `${err} error to written in gateway ${sipProfileuuid}.xml` );
-                    throw err;
-                }
+            // Written sync so that FS rescan / start called just after this reads latest trunks
+            try {
+                fs.writeFileSync( gateway_file_name, xml_gateway.toString() );
                 Logger.debug( `${sipProfileuuid}.xml gateway has been written to file successfully.` );
-            } );
+            } catch ( err ) {
+                Logger.error( `${err} error to written in gateway ${sipProfileuuid}.xml` );
+            }
+            //Write loadable profile file for additional (non primary) sip profiles on this FS server
+            this.writeLoadableSipProfile( sipProfile );
         } else {
             Logger.debug( `Sip profile not created due to uuid was defined` );
         }
+    }
+
+    /*
+    @Usage : Multi SIP profile support on same FreeSWITCH server.
+             Primary profile ("external") is loaded by FS from its static file (demo_profiles/external.xml, with WebRTC/TLS).
+             Every other active profile is written as a full sofia profile into SIP_PROFILE_LOAD_DIRECTORY,
+             which FS includes from sofia.conf.xml. Settings are based on the primary profile so calls behave the same,
+             and each profile loads its own gateways file (trunks having this sip_profile_uuid).
+    */
+
+    static readonly PRIMARY_SIP_PROFILE_NAME = "external";
+    static readonly RESERVED_SIP_PORTS = [ "5969", "5061", "7443" ];
+
+    getSipProfileLoadDirectory () {
+        return process.env.SIP_PROFILE_LOAD_DIRECTORY || "/opt/caching/sip_profiles/";
+    }
+
+    isPrimarySipProfile ( sipProfile ) {
+        return String( sipProfile?.name || "" ) == CommonFunctions.PRIMARY_SIP_PROFILE_NAME;
+    }
+
+    escapeXmlAttr ( value ) {
+        return String( value ?? "" ).replace( /&/g, "&amp;" ).replace( /</g, "&lt;" ).replace( />/g, "&gt;" ).replace( /"/g, "&quot;" ).replace( /'/g, "&apos;" );
+    }
+
+    buildLoadableSipProfileXml ( sipProfile ) {
+        const sipIp = sipProfile?.sip_ip && String( sipProfile.sip_ip ).trim() != "" ? String( sipProfile.sip_ip ).trim() : "$${local_ip_v4}";
+
+        // Same settings as primary profile (without WebRTC/TLS & presence, those stay on primary profile)
+        const settings: any = {
+            "sip-ip": sipIp,
+            "sip-port": sipProfile?.sip_port,
+            "rtp-ip": sipIp,
+            "ext-rtp-ip": sipIp,
+            "ext-sip-ip": sipIp,
+            "dialplan": "XML",
+            "context": "default",
+            "user-agent-string": "ASTPP",
+            "debug": "0",
+            "sip-trace": "no",
+            "sip-capture": "no",
+            "tls": "false",
+            "disable-transcoding": "true",
+            "all-reg-options-ping": "false",
+            "unregister-on-options-fail": "true",
+            "log-auth-failures": "true",
+            "inbound-bypass-media": "false",
+            "inbound-proxy-media": "false",
+            "disable-transfer": "false",
+            "enable-100rel": "false",
+            "rtp-timeout-sec": "300",
+            "rtp-hold-timeout-sec": "1800",
+            "dtmf-duration": "2000",
+            "manual-redirect": "true",
+            "aggressive-nat-detection": "true",
+            "enable-timer": "false",
+            "minimum-session-expires": "120",
+            "session-timeout-pt": "1800",
+            "auth-calls": "true",
+            "apply-inbound-acl": "default",
+            "inbound-codec-prefs": "PCMA,PCMU",
+            "outbound-codec-prefs": "PCMA,PCMU",
+            "inbound-late-negotiation": "false",
+            "inbound-codec-negotiation": "generous",
+            "forward-unsolicited-mwi-notify": "false",
+            "rfc2833-pt": "101",
+            "rtp-timer-name": "soft",
+            "hold-music": "$${hold_music}",
+            "manage-presence": "false",
+            "auth-all-packets": "false",
+            "challenge-realm": "auto_from",
+            "nonce-ttl": "60",
+            "pass-callee-id": "false",
+        };
+
+        // Admin configured sip_details can override, except params which must stay unique per profile / primary only
+        const blocked = [ "sip-ip", "sip-port", "tls", "tls-only", "tls-sip-port", "tls-bind-params", "tls-cert-dir", "tls-version", "wss-binding", "ws-binding", "manage-presence", "presence-hosts", "presence-privacy", "status", "dtmf_type" ];
+        try {
+            const details = sipProfile?.sip_details ? ( typeof sipProfile.sip_details == "string" ? JSON.parse( sipProfile.sip_details ) : sipProfile.sip_details ) : {};
+            Object.keys( details || {} ).forEach( ( key ) => {
+                if ( !blocked.includes( key ) && details[ key ] !== undefined && details[ key ] !== null && details[ key ] !== "" ) {
+                    settings[ key ] = String( details[ key ] );
+                }
+            } );
+        } catch ( err: any ) {
+            Logger.error( `Invalid sip_details of sip profile ${sipProfile?.name} : ${err.message}` );
+        }
+
+        let xml = `<profile name="${this.escapeXmlAttr( sipProfile?.name )}">\n`;
+        xml += `<domains>\n</domains>\n`;
+        xml += `<aliases>\n</aliases>\n`;
+        xml += `<settings>\n`;
+        Object.keys( settings ).forEach( ( key ) => {
+            xml += `<param name="${this.escapeXmlAttr( key )}" value="${this.escapeXmlAttr( settings[ key ] )}" />\n`;
+        } );
+        xml += `</settings>\n`;
+        xml += `<X-PRE-PROCESS cmd="include" data="${process.env.SIP_PROFILE_DIRECTORY}gateways/${sipProfile?.uuid}.xml"/>\n`;
+        xml += `</profile>\n`;
+        return xml;
+    }
+
+    writeLoadableSipProfile ( sipProfile ) {
+        try {
+            if ( !sipProfile?.uuid || !sipProfile?.name || this.isPrimarySipProfile( sipProfile ) ) return false;
+            const fileName = `${this.getSipProfileLoadDirectory()}${sipProfile.uuid}.xml`;
+
+            // Inactive profile or port which can clash with primary profile must not be loaded in FS
+            if ( String( sipProfile?.status ?? "0" ) != "0" || !sipProfile?.sip_port || CommonFunctions.RESERVED_SIP_PORTS.includes( String( sipProfile.sip_port ) ) ) {
+                Logger.warn( `SIP profile ${sipProfile.name} not loaded in FS (inactive or reserved/empty port : ${sipProfile?.sip_port})` );
+                this.removeLoadableSipProfile( sipProfile.uuid );
+                return false;
+            }
+
+            // Gateways file must exist before FS includes it
+            const gatewayFile = `${process.env.SIP_PROFILE_DIRECTORY}gateways/${sipProfile.uuid}.xml`;
+            fs.mkdirSync( `${process.env.SIP_PROFILE_DIRECTORY}gateways/`, { recursive: true } );
+            if ( !fs.existsSync( gatewayFile ) ) fs.writeFileSync( gatewayFile, "<gateways>\n</gateways>\n" );
+
+            fs.mkdirSync( this.getSipProfileLoadDirectory(), { recursive: true } );
+            fs.writeFileSync( fileName, this.buildLoadableSipProfileXml( sipProfile ) );
+            Logger.debug( `Loadable sip profile ${sipProfile.name} written to ${fileName}` );
+            return true;
+        } catch ( err: any ) {
+            Logger.error( `Unable to write loadable sip profile ${sipProfile?.name} : ${err.message}` );
+            return false;
+        }
+    }
+
+    removeLoadableSipProfile ( sipProfileUuid ) {
+        try {
+            const fileName = `${this.getSipProfileLoadDirectory()}${sipProfileUuid}.xml`;
+            if ( fs.existsSync( fileName ) ) fs.unlinkSync( fileName );
+        } catch ( err: any ) {
+            Logger.error( `Unable to remove loadable sip profile ${sipProfileUuid} : ${err.message}` );
+        }
+    }
+
+    // Run FS api command and wait for its response, so commands run in order (reloadxml -> start)
+    fsApi ( command: string ): Promise<string> {
+        return new Promise( ( resolve ) => {
+            try {
+                this.fsConnection.api( command, ( res ) => resolve( res?.body || "" ) );
+            } catch ( err: any ) {
+                Logger.error( `FS api ${command} failed : ${err.message}` );
+                resolve( "" );
+            }
+        } );
+    }
+
+    /*
+    @Usage : Apply sip profile file changes in FS without touching other profiles
+             restart = true only when ip/port changed (restart drops calls running on that profile only)
+    */
+
+    async applySipProfileInFs ( sipProfile, restart = false ) {
+        if ( !sipProfile?.name ) return;
+        await this.fsApi( "reloadxml" );
+        if ( this.isPrimarySipProfile( sipProfile ) ) {
+            await this.fsApi( `sofia profile ${sipProfile.name} rescan` );
+            return;
+        }
+        if ( String( sipProfile?.status ?? "0" ) != "0" ) {
+            await this.fsApi( `sofia profile ${sipProfile.name} stop` );
+            return;
+        }
+        const status = await this.fsApi( `sofia status profile ${sipProfile.name}` );
+        const isRunning = status.includes( "RUNNING" );
+        if ( !isRunning ) {
+            const res = await this.fsApi( `sofia profile ${sipProfile.name} start` );
+            Logger.debug( `Start sip profile ${sipProfile.name} : ${res}` );
+        } else if ( restart ) {
+            await this.fsApi( `sofia profile ${sipProfile.name} restart` );
+        } else {
+            await this.fsApi( `sofia profile ${sipProfile.name} rescan` );
+        }
+    }
+
+    async stopSipProfile ( profileName ) {
+        if ( !profileName || profileName == CommonFunctions.PRIMARY_SIP_PROFILE_NAME ) return;
+        await this.fsApi( `sofia profile ${profileName} stop` );
     }
 
     /*
@@ -542,6 +724,9 @@ export class CommonFunctions {
             let tertiaryTrunk = "";
             let secondaryCallId = caller_id;
             let tertiaryCallId = caller_id;
+            // CLI based route : each failover leg can dial a differently formatted To number
+            let secondaryNumber = lead_details?.phone_number;
+            let tertiaryNumber = lead_details?.phone_number;
             try {
                 if (trunk && typeof trunk === "object") {
                     primaryTrunk = trunk.trunkName || trunk.primaryTrunk || trunk.name || primaryTrunk;
@@ -549,6 +734,8 @@ export class CommonFunctions {
                     tertiaryTrunk = trunk.tertiaryTrunk || "";
                     secondaryCallId = trunk.failover_call_id_1 || caller_id;
                     tertiaryCallId = trunk.failover_call_id_2 || caller_id;
+                    secondaryNumber = trunk.failover_number_1 || lead_details?.phone_number;
+                    tertiaryNumber = trunk.failover_number_2 || lead_details?.phone_number;
                 }
             } catch (e: any) {
                 Logger.warn('Error parsing trunk/failover params, falling back to primary trunk only', e?.message || e);
@@ -559,10 +746,10 @@ export class CommonFunctions {
             // already queued — so a rule with no failover set still dials the primary exactly once.
             let dialLegs = [ `[origination_caller_id_number=${caller_id},effective_caller_id_number=${caller_id},effective_caller_id_name=${caller_id}]sofia/gateway/${primaryTrunk}/${lead_details?.phone_number}` ];
             if ( secondaryTrunk && secondaryTrunk !== primaryTrunk ) {
-                dialLegs.push( `[origination_caller_id_number=${secondaryCallId},effective_caller_id_number=${secondaryCallId},effective_caller_id_name=${secondaryCallId}]sofia/gateway/${secondaryTrunk}/${lead_details?.phone_number}` );
+                dialLegs.push( `[origination_caller_id_number=${secondaryCallId},effective_caller_id_number=${secondaryCallId},effective_caller_id_name=${secondaryCallId}]sofia/gateway/${secondaryTrunk}/${secondaryNumber}` );
             }
             if ( tertiaryTrunk && tertiaryTrunk !== primaryTrunk && tertiaryTrunk !== secondaryTrunk ) {
-                dialLegs.push( `[origination_caller_id_number=${tertiaryCallId},effective_caller_id_number=${tertiaryCallId},effective_caller_id_name=${tertiaryCallId}]sofia/gateway/${tertiaryTrunk}/${lead_details?.phone_number}` );
+                dialLegs.push( `[origination_caller_id_number=${tertiaryCallId},effective_caller_id_number=${tertiaryCallId},effective_caller_id_name=${tertiaryCallId}]sofia/gateway/${tertiaryTrunk}/${tertiaryNumber}` );
             }
             let dialString = dialLegs.join( "|" );
 
@@ -990,9 +1177,24 @@ export class CommonFunctions {
     getFsConnection () {
         try {
              return new Promise( function ( resolve, reject ) {
+                // Reject instead of hanging forever when FS refuses the socket (ESL ACL "rude-rejection"),
+                // closes it, or never answers - otherwise onModuleInit blocks and the API never starts listening.
+                let settled = false;
+                const fail = ( reason: string ) => {
+                    if ( settled ) return;
+                    settled = true;
+                    clearTimeout( timer );
+                    reject( new Error( `FS ESL connection to ${process.env.FS_HOST}:${process.env.FS_PORT} failed: ${reason}` ) );
+                };
+                const timer = setTimeout( () => fail( "timeout after 10s" ), 10000 );
                 let conn = new esl.Connection( process.env.FS_HOST, process.env.FS_PORT, process.env.FS_PASSWORD, function () {
+                    if ( settled ) return;
+                    settled = true;
+                    clearTimeout( timer );
                     resolve( conn );
                 } )
+                conn.on( "error", ( err: any ) => fail( err?.message || "socket error" ) );
+                conn.on( "esl::end", () => fail( "connection closed by FS (check ESL ACL / password)" ) );
              } )
         } catch ( err: any ) {
             Logger.debug( err.message, "Unable to make connection with fs using ESL" );

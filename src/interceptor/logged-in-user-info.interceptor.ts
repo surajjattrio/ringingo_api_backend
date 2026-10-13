@@ -16,11 +16,19 @@ export class SetUUIDInterceptor implements NestInterceptor {
         const request: any = _context.switchToHttp().getRequest();
         const timezone = request?.user?.timezone;
         //const timezone = "Asia/Kolkata";
+        const isServerSync = Boolean(
+            request.url?.includes("/server-sync") ||
+            request.originalUrl?.includes("/server-sync") ||
+            request.baseUrl?.includes("/server-sync")
+        );
+
         if ( request.method == "GET" && request?.user ) {
-            request.query.tenant_uuid = request?.user?.uuid;
+            if ( !isServerSync ) {
+                request.query.tenant_uuid = request?.user?.uuid;
+            }
             request.query.role = request?.user?.role;
             request.query.uuid = request?.user?.uuid;
-            if ( request.query.role == "agent" ) {
+            if ( !isServerSync && request.query.role == "agent" ) {
                 request.query.tenant_uuid = request?.user?.tenant_uuid;
                 request.query.uuid = request?.user?.uuid;
                 request.query.role = request?.user?.role;
@@ -34,7 +42,7 @@ export class SetUUIDInterceptor implements NestInterceptor {
                 request.query.tableName = "cdrs";
             }
 
-            if ( request.query.role == "manager" ) {
+            if ( !isServerSync && request.query.role == "manager" ) {
                 request.query.tenant_uuid = request?.user?.parent_uuid;
                 request.query.manager_uuid = request?.user?.uuid;
                 request.query.assigned_manager_role = request?.user?.assigned_manager_role;
@@ -55,12 +63,14 @@ export class SetUUIDInterceptor implements NestInterceptor {
         }
 
         if ( ( request.method == "POST" || request.method == "PUT" || request.method == "DELETE" ) && request?.user ) {
-            request.body.tenant_uuid = request?.user?.uuid;
+            if ( !isServerSync ) {
+                request.body.tenant_uuid = request?.user?.uuid;
+            }
             request.body.role = request?.user?.role;
             if ( !request.url.includes( "/trunk" ) ) {
                 request.body.domain = request?.user?.domain != undefined ? request?.user?.domain : request?.body?.domain;
             }
-            if ( request.body.role == "agent" ) {
+            if ( !isServerSync && request.body.role == "agent" ) {
                 request.body.tenant_uuid = request?.user?.tenant_uuid;
                 request.body.uuid = request?.user?.uuid;
                 request.body.role = request?.user?.role;
@@ -70,7 +80,7 @@ export class SetUUIDInterceptor implements NestInterceptor {
 		request.body.assigned_manager_role = request?.user?.assigned_manager_role;
             }
 
-            if ( request.body.role == "manager" ) {
+            if ( !isServerSync && request.body.role == "manager" ) {
                 request.body.tenant_uuid = request?.user?.parent_uuid;
                 request.body.manager_uuid = request?.user?.uuid;
                 request.body.assigned_manager_role = request?.user?.assigned_manager_role;

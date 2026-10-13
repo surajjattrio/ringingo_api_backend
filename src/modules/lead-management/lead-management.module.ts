@@ -21,6 +21,8 @@ import { CustomFieldSchema, customfieldschema } from '../custom-field/schema/cus
 import { BlendedCampaignSchema, blendedCampaignSchema } from '../campaigns/blended-campaign/schema/blended-campaign.schema';
 import { InboundCampaignSchema, inboundCampaignSchema } from '../campaigns/inbound-campaign/schema/inbound-campaign.schema';
 import { WhatsappmessageSchema, whatsappmessageSchema } from '../whatsapp-message/schema/whatsappmessage.schema';
+import { KanbanModule } from '../kanban/kanban.module';
+import { VoiceBroadcastModule } from '../voice-broadcast/voice-broadcast.module';
 
 @Module({
     /* imports:[MongooseModule.forFeature([ { name : LeadManagementSchema.name , schema : leadManagementSchema} ]) , MongooseModule.forFeature([ { name : LeadsInQueueSchema.name , schema : leadsInQueueSchema} ]) ,OutboundCampaignModule , LeadGroupModule],*/
@@ -46,7 +48,9 @@ import { WhatsappmessageSchema, whatsappmessageSchema } from '../whatsapp-messag
             { name: WhatsappmessageSchema.name, schema: whatsappmessageSchema }
         ]),
         forwardRef(() => OutboundCampaignModule),
-        forwardRef(() => BlendedCampaignModule)],
+        forwardRef(() => BlendedCampaignModule),
+        KanbanModule,
+        VoiceBroadcastModule],
     controllers: [LeadManagementController],
     providers: [LeadManagementService],
     exports: [MongooseModule, LeadManagementService]

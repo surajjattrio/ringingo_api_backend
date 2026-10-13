@@ -13,12 +13,15 @@ import { TenantSchema, tenantSchema } from 'src/modules/tenant/schema/tenant.sch
 import { AgentLiveReportSchema, agentLiveReportSchema } from 'src/modules/call-center/schema/agent-live-report.schema';
 import { WebsocketsModule } from 'src/modules/websockets/websockets.module';
 import { AgentCampaignLoginSchema, agentCampaignLoginSchema } from 'src/modules/call-center/schema/agent-campaign-login.schema';
+import { LeadResetProducerModule } from './lead-reset-queue/lead-reset-producer.module';
+import { LeadResetJobSchema, leadResetJobSchema } from './lead-reset-queue/lead-reset-job.schema';
 
 @Module({
     imports: [
         MongooseModule.forFeature([
             { name: OutboundCampaignSchema.name, schema: outboundCampaignSchema },
-            { name: VoiceBroadcastSchema.name, schema: voiceBroadcastSchema }
+            { name: VoiceBroadcastSchema.name, schema: voiceBroadcastSchema },
+            { name: LeadResetJobSchema.name, schema: leadResetJobSchema }
         ]),
         MongooseModule.forFeature([
             { name: OutboundCampaignDispositionSchema.name, schema: outboundCampaigndispositionSchema },
@@ -32,7 +35,8 @@ import { AgentCampaignLoginSchema, agentCampaignLoginSchema } from 'src/modules/
         LeadGroupModule,
         DispositionModule,
         forwardRef(() => LeadManagementModule),
-        WebsocketsModule
+        WebsocketsModule,
+        LeadResetProducerModule
     ],
     controllers: [OutboundCampaignController],
     providers: [OutboundCampaignService],

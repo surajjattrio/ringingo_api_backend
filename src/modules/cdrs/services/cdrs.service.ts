@@ -95,7 +95,7 @@ export class CdrsService {
         let callStatusFilter: any = "";
 
 
-        let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username ' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: 'telecom_circle', select: 'name uuid -_id' }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "ivr", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }];
+        let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username ' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: 'telecom_circle', select: 'name uuid -_id' }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "ivr", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }, { path: "feedback", select: 'formData -_id' }];
 
         // ===========================
         // ✅ Date Filter
@@ -574,7 +574,7 @@ export class CdrsService {
         }
 
         // populate more fields
-        let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: "ivr", select: 'name uuid -_id' }, { path: "ringgroup", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }, { path: 'telecom_circle', select: 'name uuid -_id' }];
+        let populateFields = [{ path: "user", select: "username fullname user_group_uuid", populate: { path: "user_group", select: "name uuid" } }, { path: "outbound_campaign", select: "name dial_method wrap_up_time" }, { path: "inbound_campaign", select: "name wrap_up_time" }, { path: "blended_campaign", select: "name dial_method wrap_up_time" }, { path: "notes", select: "comment" }, { path: "extension", select: 'username' }, { path: "tenant", select: 'tenant_name username' }, { path: "lead_details", select: 'first_name last_name lead_group_uuid uuid', populate: { path: "lead_group", select: "name uuid" } }, { path: "ivr", select: 'name uuid -_id' }, { path: "ringgroup", select: 'name uuid -_id' }, { path: "call_queue", select: 'name uuid -_id' }, { path: 'telecom_circle', select: 'name uuid -_id' }, { path: "feedback", select: 'formData -_id' }];
 
 
         // if (user) {
@@ -1234,6 +1234,7 @@ export class CdrsService {
                 { path: 'blended_campaign', select: 'name dial_method wrap_up_time' },
                 { path: 'notes', select: 'comment' },
                 { path: 'ivr', select: 'name' },
+                { path: 'feedback', select: 'formData -_id' },
             ];
 
             // ── CSV headers ──────────────────────────────────────────
@@ -1243,7 +1244,8 @@ export class CdrsService {
                 'Call Status', 'Hold Time', 'Waiting Time', 'Ringing Time', 'ACW Time', 'Campaign',
                 'Lead Group Name', 'Dial Method', 'Disconnected By',
                 'Disposition', 'Sub Disposition 1', 'Sub Disposition 2',
-                'Direction', 'CSAT Score', 'Comment', 'Recording Path'
+                'Direction', 'CSAT Score', 'Comment', 'Recording Path',
+                'Feedback Rating', 'Feedback Comment'
             ];
             if (isCsat) {
                 CSV_HEADERS = [
@@ -1251,7 +1253,8 @@ export class CdrsService {
                     'User ID', 'Full Name', 'User Group Name', 'IVR Name', 'Agent', 'Duration', 'Call Status', 'Campaign',
                     'Lead Group Name', 'CSAT Score', 'Disconnected By',
                     'Disposition', 'Sub Disposition 1', 'Sub Disposition 2',
-                    'Direction', 'Comment', 'Recording Path'
+                    'Direction', 'Comment', 'Recording Path',
+                    'Feedback Rating', 'Feedback Comment'
                 ];
             }
 
@@ -1364,6 +1367,9 @@ export class CdrsService {
                         ? (/^https?:\/\//i.test(data.recording_path) ? data.recording_path : `${baseUrl}/recordings/download/recording?recording=` + data.recording_path)
                         : "";
 
+                    const feedbackFormData = data?.feedback?.formData;
+                    const feedbackRating = feedbackFormData?.rating ?? '';
+                    const feedbackComment = feedbackFormData?.comment ?? '';
                     let row = [
                         callstart,
                         data.callend || '',
@@ -1397,7 +1403,9 @@ export class CdrsService {
                         data.direction || '',
                         data.ivr_feedback_score || '-',
                         comment,
-                        recording_path
+                        recording_path,
+                        feedbackRating,
+                        feedbackComment
                     ].map(escCsv).join(',');
 
                     if (isCsat) {
@@ -1432,7 +1440,9 @@ export class CdrsService {
                             path[2] ?? '',
                             data.direction || '',
                             comment,
-                            recording_path
+                            recording_path,
+                            feedbackRating,
+                            feedbackComment
                         ].map(escCsv).join(',');
                     }
 

@@ -16,6 +16,7 @@ import { InboundCampaignSchema } from "src/modules/campaigns/inbound-campaign/sc
 import { BlendedCampaignSchema } from "src/modules/campaigns/blended-campaign/schema/blended-campaign.schema";
 import { NotesSchema } from "src/modules/notes/schema/notes.schema";
 import { VoiceBroadcastSchema } from "src/modules/voice-broadcast/schema/voice-broadcast.schema";
+import { CallFeedbackSchema } from "src/modules/call-feedback/schema/call-feedback.schema";
 
 export type CdrsDocument = CdrsSchema & Document;
 
@@ -154,6 +155,9 @@ export class CdrsSchema {
 
     @Prop()
     acw_time: number;
+
+    @Prop()
+    call_feedback_uuid: String;
 }
 
 let cdrsSchema = SchemaFactory.createForClass( CdrsSchema );
@@ -241,5 +245,11 @@ cdrsSchema.virtual( 'follow_up', {
     ref: 'FollowUpSchema',
     localField: 'lead_uuid',
     foreignField: 'lead_management_uuid',
+} )
+cdrsSchema.virtual( 'feedback', {
+    ref: CallFeedbackSchema.name,
+    localField: 'call_feedback_uuid',
+    foreignField: 'uuid',
+    justOne: true,
 } )
 export { cdrsSchema }

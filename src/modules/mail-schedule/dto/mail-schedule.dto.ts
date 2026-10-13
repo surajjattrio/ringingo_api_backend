@@ -5,9 +5,9 @@ export class CreateMailScheduleDto {
     @IsString()
     name: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     @IsString()
-    report_type: string;
+    report_type?: string;
 
     @IsNotEmpty()
     @IsDateString()
@@ -70,3 +70,4 @@ export class ListMailScheduleDto {
     @IsOptional()
     limit?: number;
 }
+

@@ -43,6 +43,7 @@ import { ArcheiveWhatsappmessageSchema, archievewhatsappmessageSchema } from './
 import { whatsappsyncSchema, WhatsappsyncSchema } from '../whatsapp-sync/schema/whatsappmsync.schema';
 import { AgentCampaignLoginSchema, agentCampaignLoginSchema } from './schema/agent-campaign-login.schema';
 import { ExtensionSchema, extensionSchema } from '../extension/schema/extension.schema';
+import { DidSchema, didSchema } from '../did/schema/did.schema';
 import { SocketService } from '../websockets/websockets.gateway';
 import { omnichannelsyncSchema, OmnichannelsyncSchema } from '../omnichannel-sync/schema/omnichannelsync.schema';
 import { omnichannelmessageSchema, OmnichannelmessageSchema } from '../omnichannel-message/schema/omnichannelmessage.schema';
@@ -89,6 +90,7 @@ import { userRoleSchema, UserRoleSchema } from '../user-role/schema/user-role.sc
                         { name: WhatsappsyncSchema.name, schema: whatsappsyncSchema },
                         { name: AgentCampaignLoginSchema.name, schema: agentCampaignLoginSchema },
                         { name: ExtensionSchema.name, schema: extensionSchema },
+                        { name: DidSchema.name, schema: didSchema },
                         { name: OmnichannelsyncSchema.name, schema: omnichannelsyncSchema },
                         { name: OmnichannelmessageSchema.name, schema: omnichannelmessageSchema },
                         { name: OmniChannelReportSchema.name, schema: omniChannelReportSchema },

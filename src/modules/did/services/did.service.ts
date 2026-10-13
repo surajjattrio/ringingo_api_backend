@@ -67,7 +67,7 @@ export class DidService {
   */
 
   async findAll(queryParams) {
-    let searchFields = ["number", "timeout"];
+    let searchFields = ["number", "timeout", "name"];
     let populateFields = [{ path: "tenant", select: "tenant_name" },
     { path: "user", select: 'username' },
     ];

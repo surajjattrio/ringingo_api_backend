@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsEmail, IsArray, IsIn, IsMobilePhone, IsNotEmpty, IsNumberString, IsOptional, IsUUID, ValidateIf } from "class-validator";
+import { IsBoolean, IsEmail, IsArray, IsIn, IsMobilePhone, IsNotEmpty, IsNumberString, IsOptional, IsUUID, ValidateIf } from "class-validator";
 
 export class CreateLeadManagementDto {
 
@@ -142,6 +142,17 @@ export class CreateLeadManagementDto {
 
     @IsOptional()
     assigned_agent_uuid: string
+
+    @ApiProperty({ default: false, description: 'When true, auto-queue this lead into the linked voice broadcast right after creation' })
+    @IsOptional()
+    @IsBoolean()
+    vb_auto_churn: boolean
+
+    @ApiProperty({ description: 'Optional. If omitted, the active voice broadcast linked to lead_group_uuid is resolved automatically' })
+    @ValidateIf(val => val.voice_broadcast_uuid !== '')
+    @IsOptional()
+    @IsUUID()
+    voice_broadcast_uuid: string
 
     // @IsOptional()
     // DebtorAccount: any

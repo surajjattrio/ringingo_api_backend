@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsIn, IsNotEmpty, IsNumberString, IsOptional, IsUUID, ValidateIf } from "class-validator";
+import { IsIn, IsNotEmpty, IsNumberString, IsOptional, IsString, IsUUID, ValidateIf } from "class-validator";
 
 export class CreateBlendedCampaignDto {
 
@@ -96,6 +96,11 @@ export class CreateBlendedCampaignDto {
   @ValidateIf( val => val.auto_answer != "" )
   @IsIn( [ "0", "1" ] )
   auto_answer: string
+
+  @ApiProperty()
+  @IsOptional()
+  @IsString()
+  is_limechat: string
 
   @IsNotEmpty()
   tenant_uuid: string
@@ -230,6 +235,15 @@ export class CreateBlendedCampaignDto {
   @ApiProperty()
   @IsOptional()
   message_config_uuid: string
+
+  @ApiProperty( { description: "Multi Caller IDs for Manual Calls : 0 - Enable | 1 - Disable", default: "1" } )
+  @IsOptional()
+  @IsIn( [ "0", "1" ] )
+  manual_multi_caller_id: string
+
+  @ApiProperty( { description: "DID numbers allowed as caller id for manual calls" } )
+  @IsOptional()
+  manual_caller_ids: Object
 }
 
 

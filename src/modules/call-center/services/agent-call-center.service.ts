@@ -63,6 +63,8 @@ import { ArcheiveWhatsappmessageSchema, ArchieveWhatsappmessageDocument } from "
 import { WhatsappsyncDocument, WhatsappsyncSchema } from "src/modules/whatsapp-sync/schema/whatsappmsync.schema";
 import { AgentCampaignLoginDocument, AgentCampaignLoginSchema } from "../schema/agent-campaign-login.schema";
 import { ExtensionDocument, ExtensionSchema } from "src/modules/extension/schema/extension.schema";
+import { DidDocument, DidSchema } from "src/modules/did/schema/did.schema";
+import { isCliRoute, nextCliRouteRoundRobin, resolveCliRoute } from "src/modules/outgoing-rules/utils/cli-route";
 import { SocketService } from "src/modules/websockets/websockets.gateway";
 import { OmnichannelsyncDocument, OmnichannelsyncSchema } from "src/modules/omnichannel-sync/schema/omnichannelsync.schema";
 import { OmnichannelmessageDocument, OmnichannelmessageSchema, omnichannelmessageSchema } from "src/modules/omnichannel-message/schema/omnichannelmessage.schema";
@@ -136,6 +138,7 @@ export class AgentCallCenterService {
         @InjectModel(ArcheiveOmnichannelmessageSchema.name) private readonly archieveomnichannelmessage: Model<ArcheiveOmnichannelmessageSchema>,
         @InjectModel(OmnichannelmessageSchema.name) private readonly omnichannelMessage: Model<OmnichannelmessageDocument>,
         @InjectModel(OmniChannelReportSchema.name) private readonly omnichannel_report: Model<OmniChannelReportDocument>,
+        @InjectModel(DidSchema.name) private readonly did: Model<DidDocument>,
         private readonly commonDbFn: CommonDBFunctions,
         private readonly commonFn: CommonFunctions,
         private readonly socketService: SocketService,
@@ -1279,7 +1282,7 @@ export class AgentCallCenterService {
             Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] TEMP_AGENT_QUEUE_UPDATE_DONE`);
             try {
                 Logger.warn(`[AUTO_DIAL_TRACE ${traceId}] CAMPAIGN_LOOKUP_START flag=${campaign_flag}`);
-                let populateFileds = [{ path: "outgoing_rule", select: "rules -_id" }];
+                let populateFileds = [{ path: "outgoing_rule", select: "uuid rules route_type no_cli_mode -_id" }];
                 if (campaign_flag == 'blended') {
                     campaignData = await this.blended_campaign.findOne({ uuid: campaign_uuid }, { concurrent_call: 1, call_id_type: 1, call_id_value: 1, outgoing_rule_uuid: 1, agent_timeout: 1, number_masking: 1, timeout: 1, answering_machine_detection: 1, caller_id_time: 1, cps: 1, lead_type: 1, _id: 0 }).populate(populateFileds).exec();
                 } else if (campaign_flag == 'outbound') {
@@ -1352,7 +1355,22 @@ export class AgentCallCenterService {
                 }
 
                 //Get Trunk name
-                let trunkDetails: any = await this.getTrunkUUID(campaignData.outgoing_rule[0].rules, leadNumber);
+                let trunkDetails: any;
+                let callCallerId = caller_id;
+                let cliRoute: any = null;
+                if (isCliRoute(campaignData?.outgoing_rule?.[0])) {
+                    // CLI based route : route, CLI & To number decided by caller id
+                    const cliRule = campaignData.outgoing_rule[0];
+                    cliRoute = await resolveCliRoute(cliRule, caller_id, leadNumber, () => nextCliRouteRoundRobin(this.trunk.db, cliRule?.uuid));
+                    Logger.debug(`CLI Route [campaign ${campaign_uuid}] caller_id ${caller_id} to ${leadNumber} ==> ${JSON.stringify(cliRoute)}`);
+                    trunkDetails = cliRoute.ok
+                        ? { lead_number: cliRoute.primary.to, trunk_uuid: cliRoute.primary.trunk_uuid, matchedRule: null }
+                        : { lead_number: leadNumber, trunk_uuid: null, matchedRule: null };
+                    if (cliRoute.ok) callCallerId = cliRoute.primary.cli;
+                    else Logger.error(`CLI Route not found : ${cliRoute.reason}`);
+                } else {
+                    trunkDetails = await this.getTrunkUUID(campaignData.outgoing_rule[0].rules, leadNumber);
+                }
                 Logger.debug(`Trunk Details`, JSON.stringify(trunkDetails));
 
                 //Get Lead details
@@ -1365,11 +1383,11 @@ export class AgentCallCenterService {
                 }
 
                 //Need to change below query as voice broadcast
-                let trunkName = await this.trunk.findOne({ uuid: trunkDetails.trunk_uuid }, { name: 1, _id: 0 }).exec();
+                let trunkName = trunkDetails?.trunk_uuid ? await this.trunk.findOne({ uuid: trunkDetails.trunk_uuid }, { name: 1, _id: 0 }).exec() : null;
 
                 //Check required params is missing then not generate any calls and  update lead status to
                 try {
-                    if (campaign_uuid == undefined || tenant_uuid == undefined || leadDetails.phone_number == undefined || caller_id == undefined || trunkName == null) {
+                    if (campaign_uuid == undefined || tenant_uuid == undefined || leadDetails.phone_number == undefined || callCallerId == undefined || trunkName == null) {
                         Logger.error(`Found something undefined`, JSON.stringify({ campaign_uuid, tenant_uuid, agent_uuid: uuid, phone_number: leadDetails.phone_number, caller_id, trunk: trunkName }));
 
                         //push all error leads
@@ -1389,15 +1407,27 @@ export class AgentCallCenterService {
                 // Trunk failover: resolve Failover Trunk 1/2 gateway names + their DIDs (if configured on the matched outgoing rule)
                 const failoverTrunk1Name = trunkDetails?.matchedRule?.failover_trunk_1_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_1_uuid }, { name: 1, _id: 0 }).exec() : null;
                 const failoverTrunk2Name = trunkDetails?.matchedRule?.failover_trunk_2_uuid ? await this.trunk.findOne({ uuid: trunkDetails.matchedRule.failover_trunk_2_uuid }, { name: 1, _id: 0 }).exec() : null;
-                const trunkParam = {
+                const trunkParam: any = {
                     trunkName: trunkName?.name,
                     secondaryTrunk: failoverTrunk1Name?.name || "",
                     tertiaryTrunk: failoverTrunk2Name?.name || "",
                     failover_call_id_1: trunkDetails?.matchedRule?.failover_trunk_1_call_id || "",
                     failover_call_id_2: trunkDetails?.matchedRule?.failover_trunk_2_call_id || ""
                 };
+                if (cliRoute?.ok) {
+                    // CLI route failovers : own trunk, fixed CLI and formatted To number per leg
+                    const [failover1, failover2] = cliRoute.failovers || [];
+                    const cliFailover1Trunk = failover1 ? await this.trunk.findOne({ uuid: failover1.trunk_uuid }, { name: 1, _id: 0 }).exec() : null;
+                    const cliFailover2Trunk = failover2 ? await this.trunk.findOne({ uuid: failover2.trunk_uuid }, { name: 1, _id: 0 }).exec() : null;
+                    trunkParam.secondaryTrunk = cliFailover1Trunk?.name || "";
+                    trunkParam.tertiaryTrunk = cliFailover2Trunk?.name || "";
+                    trunkParam.failover_call_id_1 = failover1?.cli || "";
+                    trunkParam.failover_call_id_2 = failover2?.cli || "";
+                    trunkParam.failover_number_1 = failover1?.to || "";
+                    trunkParam.failover_number_2 = failover2?.to || "";
+                }
 
-                let generateUUIDForCalling: any = await this.commonFn.getUUIDForCall(campaign_uuid, tenant_uuid, uuid, leadDetails, caller_id, trunkParam, campaignData?.timeout, username, campaignData?.number_masking, campaign_mode, campaignData?.answering_machine_detection, "", loggedInEntityUUID, domain, account_code, campaign_flag, "");
+                let generateUUIDForCalling: any = await this.commonFn.getUUIDForCall(campaign_uuid, tenant_uuid, uuid, leadDetails, callCallerId, trunkParam, campaignData?.timeout, username, campaignData?.number_masking, campaign_mode, campaignData?.answering_machine_detection, "", loggedInEntityUUID, domain, account_code, campaign_flag, "");
 
                 //Update lead status in lead management to auto_originate
                 let leadManagementUpdate = await this.lead_management.updateOne({ lead_management_uuid: allLeads[i]?.lead_management_uuid }, { lead_status: autoOriginateDisposition }, { upsert: true }).exec();
@@ -3169,6 +3199,37 @@ return uniqueIds;
     @return Object                : Success / Error
     */
 
+    /*
+    @Usage                : To get caller ids (DID number with name) allowed for manual calls in outbound / blended campaign
+    @Param campaign_uuid  : Outbound or blended campaign uuid
+    @return Object        : { manual_multi_caller_id, caller_ids : [{ number, name }] }
+    */
+
+    async getManualCallerIds(campaign_uuid: string) {
+        try {
+            const projection = { _id: 0, manual_multi_caller_id: 1, manual_caller_ids: 1 };
+            const campaign: any = await this.outbound_campaign.findOne({ uuid: campaign_uuid }, projection).lean().exec()
+                || await this.blended_campaign.findOne({ uuid: campaign_uuid }, projection).lean().exec();
+
+            const numbers: string[] = Array.isArray(campaign?.manual_caller_ids) ? campaign.manual_caller_ids.map(String) : [];
+            if (!campaign || campaign.manual_multi_caller_id != "0" || numbers.length == 0) {
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, { manual_multi_caller_id: "1", caller_ids: [] });
+            }
+
+            const dids = await this.did.find({ number: { $in: numbers }, status: "0" }, { _id: 0, number: 1, name: 1 }).lean().exec();
+            // Keep the order configured in campaign
+            const caller_ids = numbers
+                .map(number => dids.find((did: any) => String(did.number) == number))
+                .filter(Boolean)
+                .map((did: any) => ({ number: String(did.number), name: did.name || "" }));
+
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, { manual_multi_caller_id: "0", caller_ids });
+        } catch (error) {
+            Logger.error(`Error in fetching manual caller ids for campaign : ${campaign_uuid}`, error.message);
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to fetch caller ids");
+        }
+    }
+
     async fetchCampaigns(loggedInUserDetails) {
         const { uuid, tenant_uuid } = loggedInUserDetails;
         let response, statusCode;
@@ -3368,6 +3429,9 @@ return uniqueIds;
                         "outbound_message_config": { "$first": { "$arrayElemAt": ["$outbound_campaign.message_config_uuid", 0] } },
                         "inbound_message_config": { "$first": { "$arrayElemAt": ["$inbound_campaign.message_config_uuid", 0] } },
                         "blended_message_config": { "$first": { "$arrayElemAt": ["$blended_campaign.message_config_uuid", 0] } },
+                        "outbound_is_limechat": { "$first": { "$ifNull": ["$outbound_campaign.is_limechat", "$outbound_campaign.isLimeChat"] } },
+                        "inbound_is_limechat": { "$first": { "$ifNull": ["$inbound_campaign.is_limechat", "$inbound_campaign.isLimeChat"] } },
+                        "blended_is_limechat": { "$first": { "$ifNull": ["$blended_campaign.is_limechat", "$blended_campaign.isLimeChat"] } },
                     }
                 },
                 {
@@ -3383,6 +3447,9 @@ return uniqueIds;
                         outbound_message_config: 1,
                         inbound_message_config: 1,
                         blended_message_config: 1,
+                        outbound_is_limechat: 1,
+                        inbound_is_limechat: 1,
+                        blended_is_limechat: 1,
                          email_config_uuid: {
                             $ifNull: [
                                 "$outbound_email_config",
@@ -3427,7 +3494,7 @@ return uniqueIds;
             }
 
 
-            let obj = {}, finalArr = [], campaign_name, campaign_type, recording, dial_method, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details;
+            let obj = {}, finalArr = [], campaign_name, campaign_type, recording, dial_method, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details, is_limechat;
             resultArray?.map((data) => {
                 if (data.login_status == "0") {
                     if (data.outbound_campaign_details.length > 0 || data.inbound_campaign_details.length > 0 || data.blended_campaign_details.length > 0) {
@@ -3442,6 +3509,7 @@ return uniqueIds;
                         wrap_up_time = data.outbound_campaign_details.length == 0 ? data.inbound_wrap_up_time[0] : data.wrap_up_time[0];
                         wrap_up_disposition = data.outbound_campaign_details.length == 0 ? data.inbound_wrap_up_disposition[0] : data.wrap_up_disposition[0];
                         call_queue_details = data.outbound_campaign_details.length == 0 ? data.inbound_call_queue_details : data.outbound_call_queue_details;
+                        is_limechat = (data.outbound_is_limechat && data.outbound_is_limechat.length > 0) ? data.outbound_is_limechat[0] : "1";
 
                         if (data.inbound_campaign_details.length > 0) {
                             console.log("inside data.inbound_campaign_details.length");
@@ -3451,6 +3519,7 @@ return uniqueIds;
                             agent_script_text = (data.inbound_agent_script_text && data.inbound_agent_script_text.length > 0) ? data.inbound_agent_script_text[0] : "";
                             // campaign_type = data.inbound_campaign_type[ 0 ];
                             call_queue_details = data.inbound_call_queue_details;
+                            is_limechat = (data.inbound_is_limechat && data.inbound_is_limechat.length > 0) ? data.inbound_is_limechat[0] : "1";
                         }
                         if (data.outbound_campaign_details.length == 0 && data.inbound_campaign_details.length == 0) { // For Blended
                             campaign_name = data.blended_campaign_details[0];
@@ -3462,6 +3531,7 @@ return uniqueIds;
                             agent_script = data.blended_agent_script[0];
                             agent_script_text = data.blended_agent_script_text[0];
                             call_queue_details = data.blended_call_queue_details;
+                            is_limechat = (data.blended_is_limechat && data.blended_is_limechat.length > 0) ? data.blended_is_limechat[0] : "1";
                         } else {
                             campaign_type = data.campaign_type[0];
                             if (data.outbound_campaign_details.length > 0) {
@@ -3469,10 +3539,11 @@ return uniqueIds;
                                 agent_script = data.outbound_agent_script[0];
                                 agent_script_text = data.outbound_agent_script_text[0];
                                 call_queue_details = data.outbound_call_queue_details;
+                                is_limechat = (data.outbound_is_limechat && data.outbound_is_limechat.length > 0) ? data.outbound_is_limechat[0] : "1";
                             }
                         }
 
-                        obj = { campaign_name, uuid: data._id, dial_method, campaign_type, recording, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details, email_config_uuid: data.email_config_uuid, api_config_uuid: data.api_config_uuid, email_type: data.email_type, message_config_uuid: data.message_config_uuid  };
+                        obj = { campaign_name, uuid: data._id, dial_method, campaign_type, recording, current_dial_level, target_drop_percent, max_dial_level, minimum_calls, number_masking, wrap_up_time, wrap_up_disposition, auto_answer, agent_script, agent_script_text, call_queue_details, email_config_uuid: data.email_config_uuid, api_config_uuid: data.api_config_uuid, email_type: data.email_type, message_config_uuid: data.message_config_uuid, is_limechat: is_limechat || "1" };
                         finalArr.push(obj);
                     }
                 }

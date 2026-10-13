@@ -446,19 +446,42 @@ export class CronService {
                     // Evaluate timing against tenant's current local time
                     const currentTime = moment.tz(timezone);
                     const currentHHmm = currentTime.format('HH:mm');
+                    const currenthhmm = currentTime.format('hh:mm');
 
                     // Check if schedule is active today
                     const today = currentTime.clone().startOf('day');
                     const start = moment.tz(schedule.startDate, timezone).startOf('day');
-                    const end = moment.tz(schedule.endDate, timezone).startOf('day');
+                    const end = moment.tz(schedule.endDate, timezone).endOf('day');
 
                     if (today.isBefore(start) || today.isAfter(end)) {
                         continue; // Skip because today is outside the scheduled date range
                     }
 
-                    console.log(`currentHMM at ${currentHHmm} timezone (${timezone}) schedule timing ${schedule.timing} `);
+                    // Flexible match for both 24-hour (22:29) and 12-hour (10:29) timing representations
+                    const rawTiming = (schedule.timing || "").trim();
+                    let timing24 = rawTiming;
+                    let timing12 = rawTiming;
+                    if (/am|pm/i.test(rawTiming)) {
+                        timing24 = moment(rawTiming, ["hh:mm A", "h:mm A", "hh:mma", "h:mma"]).format("HH:mm");
+                        timing12 = moment(rawTiming, ["hh:mm A", "h:mm A", "hh:mma", "h:mma"]).format("hh:mm");
+                    } else if (moment(rawTiming, ["HH:mm", "H:mm"], true).isValid()) {
+                        timing24 = moment(rawTiming, ["HH:mm", "H:mm"]).format("HH:mm");
+                        timing12 = moment(rawTiming, ["HH:mm", "H:mm"]).format("hh:mm");
+                    } else if (rawTiming.length === 4 && rawTiming.indexOf(':') === 1) {
+                        timing24 = `0${rawTiming}`;
+                        timing12 = `0${rawTiming}`;
+                    }
 
-                    if (schedule.timing === currentHHmm) {
+                    //const isTimingMatch = 
+                      //  rawTiming === currentHHmm || 
+                        //rawTiming === currenthhmm || 
+                        //timing24 === currentHHmm ||
+                        //timing12 === currenthhmm;
+		    const isTimingMatch = timing24 === currentHHmm;
+
+		       console.log(`current time: 24h="${currentHHmm}" in timezone (${timezone}) vs schedule timing "${schedule.timing}" -> matched: ${isTimingMatch}`);
+             
+                    if (isTimingMatch) {
                         Logger.log(`Running mail schedule: ${schedule.name} for tenant ${schedule.tenant_uuid}`);
 
                         // Fetch SMTP config
@@ -480,9 +503,9 @@ export class CronService {
                             continue;
                         }
 
-                        // Execute report query
-                        const startMoment = moment.tz(schedule.startDate, timezone).startOf('day');
-                        const endMoment = moment.tz(schedule.endDate, timezone).endOf('day');
+                        // Execute report query for the current execution day
+                        const startMoment = currentTime.clone().startOf('day');
+                        const endMoment = currentTime.clone().endOf('day');
 
                         const startDateFormatted = startMoment.format('YYYY-MM-DD HH:mm:ss');
                         const endDateFormatted = endMoment.format('YYYY-MM-DD HH:mm:ss');
@@ -570,29 +593,88 @@ export class CronService {
                         
                         if (attachments.length > 0) {
                             const combinedReportNames = reportNamesList.join(", ");
-                            let emailBody = `<p>Please find the attached report(s): ${combinedReportNames} spanning from ${schedule.startDate} to ${schedule.endDate}.</p>`;
+                            const currentDateFormatted = currentTime.format('YYYY-MM-DD');
+                            const startDateFormattedStr = startMoment.format('YYYY-MM-DD');
+                            const endDateFormattedStr = endMoment.format('YYYY-MM-DD');
+
+                            let emailBody = `<p>Please find the attached report(s): ${combinedReportNames} for ${currentDateFormatted}.</p>`;
+                            let emailSubject = `Scheduled Report: ${combinedReportNames} - ${currentDateFormatted}`;
                             
                             if (mailConfig.template_ids && mailConfig.template_ids.length > 0) {
                                 const templateUuid = mailConfig.template_ids[0];
                                 const templateRecord = await this.emailTemplate.findOne({ uuid: templateUuid }).lean();
                                 
-                                if (templateRecord && templateRecord.body) {
-                                    emailBody = templateRecord.body
-                                        .replace(/\[REPORT_NAME\]/g, combinedReportNames)
-                                        .replace(/\[START_DATE\]/g, moment(schedule.startDate).format('YYYY-MM-DD'))
-                                        .replace(/\[END_DATE\]/g, moment(schedule.endDate).format('YYYY-MM-DD'));
+                                if (templateRecord) {
+                                    if (templateRecord.subject) {
+                                        emailSubject = templateRecord.subject
+                                            .replace(/\[REPORT_NAME\]/g, combinedReportNames)
+                                            .replace(/\[START_DATE\]/g, startDateFormattedStr)
+                                            .replace(/\[END_DATE\]/g, endDateFormattedStr)
+                                            .replace(/\[CURRENT_DATE\]/g, currentDateFormatted)
+                                            .replace(/\[DATE\]/g, currentDateFormatted);
+
+                                        // If subject does not already contain the date, append the current date
+                                        if (!emailSubject.includes(currentDateFormatted) && !emailSubject.includes(startDateFormattedStr)) {
+                                            emailSubject = `${emailSubject} - ${currentDateFormatted}`;
+                                        }
+                                    }
+
+                                    if (templateRecord.body) {
+                                        emailBody = templateRecord.body
+                                            .replace(/\[REPORT_NAME\]/g, combinedReportNames)
+                                            .replace(/\[START_DATE\]/g, startDateFormattedStr)
+                                            .replace(/\[END_DATE\]/g, endDateFormattedStr)
+                                            .replace(/\[CURRENT_DATE\]/g, currentDateFormatted)
+                                            .replace(/\[DATE\]/g, currentDateFormatted);
+
+                                        // Dynamic Live Metrics & Tables injection (Non-breaking & Opt-in)
+                                        emailBody = await this.generateLiveMetricsAndTables(
+                                            schedule.tenant_uuid,
+                                            startMoment,
+                                            endMoment,
+                                            emailBody
+                                        );
+                                    }
                                 }
                             }
-                            console.log(`Sending email for schedule ${attachments} attachments.`);
+                            console.log(`Sending email for schedule ${attachments.length} attachments with subject: "${emailSubject}"`);
                             
-                            await this.mailService.sendReportMail(mailConfig, attachments, emailBody, combinedReportNames);
+                            await this.mailService.sendReportMail(mailConfig, attachments, emailBody, combinedReportNames, emailSubject);
                             Logger.log(`Successfully sent mail schedule ${schedule.uuid} with ${attachments.length} reports.`);
-                        } else {
+                            await this.mailSchedule.updateOne(
+                                { uuid: schedule.uuid },
+                                {
+                                    $set: {
+                                        mail_status: "sent",
+                                        last_sent_date: currentTime.format('YYYY-MM-DD'),
+                                        last_sent_time: currentTime.format('HH:mm'),
+                                        last_sent_at: new Date()
+                                    }
+                                }
+                            );
+			} else {
                             Logger.warn(`No data found for schedule ${schedule.uuid} between ${schedule.startDate} and ${schedule.endDate}, skipping email dispatch.`);
+			       await this.mailSchedule.updateOne(
+                                { uuid: schedule.uuid },
+                                {
+                                    $set: {
+                                        mail_status: "not_sent",
+                                        last_attempt_date: currentTime.format('YYYY-MM-DD')
+                                    }
+                                }
+                            );
                         }
                     }
                 } catch (schedError: any) {
                     Logger.error(`Error executing mail schedule ${schedule.name} (${schedule.uuid}): `, schedError.stack || schedError.message);
+		    await this.mailSchedule.updateOne(
+                        { uuid: schedule.uuid },
+                        {
+                            $set: {
+                                mail_status: "not_sent"
+                            }
+                        }
+                    );
                 }
             }
         } catch (error: any) {
@@ -600,4 +682,314 @@ export class CronService {
         }
     }
 
+    private async generateLiveMetricsAndTables(
+        tenant_uuid: string,
+        startMoment: moment.Moment,
+        endMoment: moment.Moment,
+        emailBody: string
+    ): Promise<string> {
+        const needsMetrics = /\[(TOTAL_CALLS|CONNECTED_CALLS|CONNECTED|MISSED_CALLS|NOT_CONNECTED_CALLS|NOT_CONNECTED|ABANDONED_CALLS|ABANDONED|AGENT_WISE_TABLE|QUEUE_WISE_TABLE)\]/.test(emailBody);
+        if (!needsMetrics) {
+            return emailBody;
+        }
+
+        try {
+            const startDate = startMoment.toDate();
+            const endDate = endMoment.toDate();
+
+            const matchFilter: any = {
+                tenant_uuid,
+                createdAt: { $gte: startDate, $lte: endDate }
+            };
+
+            // Effective talktime expression across inbound (actual_talktime) and outbound (actual_talktime or billsecond)
+            const talktimeExpr = {
+                $cond: [
+                    { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] },
+                    { $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } },
+                    {
+                        $cond: [
+                            { $eq: [{ $toLower: "$direction" }, "outbound"] },
+                            { $convert: { input: "$billsecond", to: "double", onError: 0, onNull: 0 } },
+                            0
+                        ]
+                    }
+                ]
+            };
+
+            // 1. Overall Metrics:
+            // - Total: All calls from CDR
+            // - Connected: actual_talktime > 0
+            // - Not Connected: outbound and actual_talktime <= 0
+            // - Abandoned: inbound and actual_talktime <= 0
+            const [metricsAgg] = await this.cdrs.aggregate([
+                { $match: matchFilter },
+                {
+                    $group: {
+                        _id: null,
+                        totalCalls: { $sum: 1 },
+                        connectedCalls: {
+                            $sum: {
+                                $cond: [
+                                    { $gt: [talktimeExpr, 0] },
+                                    1,
+                                    0
+                                ]
+                            }
+                        },
+                        notConnectedCalls: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: [{ $toLower: "$direction" }, "outbound"] },
+                                            { $lte: [talktimeExpr, 0] }
+                                        ]
+                                    },
+                                    1,
+                                    0
+                                ]
+                            }
+                        },
+                        abandonedCalls: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $ne: [{ $toLower: "$direction" }, "outbound"] },
+                                            { $lte: [talktimeExpr, 0] }
+                                        ]
+                                    },
+                                    1,
+                                    0
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]);
+
+            const totalCalls = metricsAgg?.totalCalls || 0;
+            const connectedCalls = metricsAgg?.connectedCalls || 0;
+            const notConnectedCalls = metricsAgg?.notConnectedCalls || 0;
+            const abandonedCalls = metricsAgg?.abandonedCalls || 0;
+            const missedCalls = abandonedCalls;
+
+            // 2. Agent-Wise Aggregation
+            let agentTableHtml = "";
+            if (emailBody.includes("[AGENT_WISE_TABLE]")) {
+                const agentAgg = await this.cdrs.aggregate([
+                    { $match: { ...matchFilter, user_uuid: { $exists: true, $ne: "" } } },
+                    {
+                        $group: {
+                            _id: "$user_uuid",
+                            totalCalls: { $sum: 1 },
+                            connectedCalls: {
+                                $sum: {
+                                    $cond: [
+                                        { $gt: [talktimeExpr, 0] },
+                                        1,
+                                        0
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "user",
+                            localField: "_id",
+                            foreignField: "uuid",
+                            as: "userInfo"
+                        }
+                    },
+                    { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true } },
+                    { $sort: { totalCalls: -1 } }
+                ]);
+
+                let agentRows = "";
+                if (agentAgg && agentAgg.length > 0) {
+                    agentAgg.forEach((agent: any) => {
+                        const name = agent.userInfo?.fullname || agent.userInfo?.username || agent.userInfo?.first_name || `Agent (${String(agent._id).substring(0, 6)})`;
+                        const aTotal = agent.totalCalls || 0;
+                        const aConnected = agent.connectedCalls || 0;
+                        agentRows += `
+                            <tr>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; font-weight: 500;">${name}</td>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">${aTotal}</td>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center; color: #16a34a; font-weight: 600;">${aConnected}</td>
+                            </tr>`;
+                    });
+                } else {
+                    agentRows = `<tr><td colspan="3" style="padding: 12px; text-align: center; color: #64748b;">No agent call records found for this period.</td></tr>`;
+                }
+
+                agentTableHtml = `
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px;">
+                        <thead>
+                            <tr style="background-color: #f1f5f9; color: #475569;">
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: left;">Agent</th>
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">All Calls</th>
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">Connected Calls</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${agentRows}
+                        </tbody>
+                    </table>`;
+            }
+
+            // 3. Queue-Wise Aggregation (Strictly Call Queues, Excludes IVRs & Includes All Active Queues)
+            let queueTableHtml = "";
+            if (emailBody.includes("[QUEUE_WISE_TABLE]")) {
+                const queueAgg = await this.cdrs.aggregate([
+                    { 
+                        $match: { 
+                            ...matchFilter,
+                            $or: [
+                                { pbx_feature: { $in: ["call_queue", "callqueue", "call-queue"] } },
+                                { call_state: "call-queue" }
+                            ]
+                        } 
+                    },
+                    {
+                        $group: {
+                            _id: "$pbx_feature_uuid",
+                            totalCalls: { $sum: 1 },
+                            connectedCalls: {
+                                $sum: {
+                                    $cond: [
+                                        { $gt: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] },
+                                        1,
+                                        0
+                                    ]
+                                }
+                            },
+                            abandonedCalls: {
+                                $sum: {
+                                    $cond: [
+                                        {
+                                            $or: [
+                                                { $eq: ["$call_state", "drop"] },
+                                                {
+                                                    $and: [
+                                                        { $eq: ["$call_state", "normal"] },
+                                                        { $eq: [{ $convert: { input: "$actual_talktime", to: "double", onError: 0, onNull: 0 } }, 0] }
+                                                    ]
+                                                },
+                                                {
+                                                    $and: [
+                                                        { $eq: ["$call_state", "missed"] },
+                                                        { $in: ["$disposition", ["CALLQUEUE_TIMEOUT", "IVR_TIMEOUT"]] }
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        1,
+                                        0
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "call_queue",
+                            localField: "_id",
+                            foreignField: "uuid",
+                            as: "queueInfo"
+                        }
+                    },
+                    { $unwind: { path: "$queueInfo", preserveNullAndEmptyArrays: true } }
+                ]);
+
+                // Fetch all active queues configured for this tenant to ensure even 0-call queues are visible
+                let tenantQueues: any[] = [];
+                try {
+                    tenantQueues = await this.cdrs.db.collection("call_queue").find({
+                        tenant_uuid,
+                        status: "0"
+                    }).toArray();
+                } catch (qErr) {
+                    Logger.warn(`Failed to fetch tenant queues: ${qErr}`);
+                }
+
+                const queueStatsMap = new Map<string, any>();
+
+                // 1. Populate all active queues from database
+                for (const tq of tenantQueues) {
+                    queueStatsMap.set(String(tq.uuid), {
+                        name: tq.name || "Unnamed Queue",
+                        totalCalls: 0,
+                        connectedCalls: 0,
+                        abandonedCalls: 0
+                    });
+                }
+
+                // 2. Overlay live CDR metrics for each queue
+                if (queueAgg && queueAgg.length > 0) {
+                    for (const q of queueAgg) {
+                        const queueUuid = String(q._id);
+                        const existing = queueStatsMap.get(queueUuid);
+                        const queueName = q.queueInfo?.name || existing?.name || (q._id ? `Queue` : "Default Queue");
+
+                        queueStatsMap.set(queueUuid, {
+                            name: queueName,
+                            totalCalls: q.totalCalls || 0,
+                            connectedCalls: q.connectedCalls || 0,
+                            abandonedCalls: q.abandonedCalls || 0
+                        });
+                    }
+                }
+
+                const finalQueueList = Array.from(queueStatsMap.values()).sort((a, b) => b.totalCalls - a.totalCalls);
+
+                let queueRows = "";
+                if (finalQueueList.length > 0) {
+                    finalQueueList.forEach((q: any) => {
+                        queueRows += `
+                            <tr>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; font-weight: 500;">${q.name}</td>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">${q.totalCalls}</td>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center; color: #16a34a; font-weight: 600;">${q.connectedCalls}</td>
+                                <td style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center; color: #dc2626; font-weight: 600;">${q.abandonedCalls}</td>
+                            </tr>`;
+                    });
+                } else {
+                    queueRows = `<tr><td colspan="4" style="padding: 12px; text-align: center; color: #64748b;">No call queues configured for this tenant.</td></tr>`;
+                }
+
+                queueTableHtml = `
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px;">
+                        <thead>
+                            <tr style="background-color: #f1f5f9; color: #475569;">
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: left;">Queue Name</th>
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">Total Calls</th>
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">Answered</th>
+                                <th style="padding: 10px 12px; border: 1px solid #e2e8f0; text-align: center;">Abandoned</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${queueRows}
+                        </tbody>
+                    </table>`;
+            }
+
+            return emailBody
+                .replace(/\[TOTAL_CALLS\]/g, totalCalls.toLocaleString())
+                .replace(/\[CONNECTED_CALLS\]/g, connectedCalls.toLocaleString())
+                .replace(/\[CONNECTED\]/g, connectedCalls.toLocaleString())
+                .replace(/\[NOT_CONNECTED_CALLS\]/g, notConnectedCalls.toLocaleString())
+                .replace(/\[NOT_CONNECTED\]/g, notConnectedCalls.toLocaleString())
+                .replace(/\[MISSED_CALLS\]/g, missedCalls.toLocaleString())
+                .replace(/\[ABANDONED_CALLS\]/g, abandonedCalls.toLocaleString())
+                .replace(/\[ABANDONED\]/g, abandonedCalls.toLocaleString())
+                .replace(/\[AGENT_WISE_TABLE\]/g, agentTableHtml)
+                .replace(/\[QUEUE_WISE_TABLE\]/g, queueTableHtml);
+        } catch (err: any) {
+            Logger.error(`generateLiveMetricsAndTables error: ${err?.message || err}`);
+            return emailBody;
+        }
+    }
 }
+

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { PatchDto } from "src/modules/common/dto/patch.dto";
 import { deleteDecoraters, getDecoraters, postDecoraters, putDecoraters } from "src/swagger/swagger_decoraters";
@@ -70,6 +70,21 @@ export class TrunkController {
 
     findAll(@Query() queryParam) {
         return this.trunk.findAll(queryParam);
+    }
+
+    @Get('/tenant/sip-profiles')
+    @getDecoraters("Retrieved sip profiles successfully", "List sip profiles assigned to logged in tenant")
+
+    /*
+    @Usage          : SIP profiles tenant can select while creating trunk (multi sip profile)
+    @Method         : GET
+    @Param req      : LoggedIn user details (manager uses its parent tenant)
+    @return Object  : Array of { uuid, name }
+    */
+
+    getTenantSipProfiles(@Req() req) {
+        const tenant_uuid = req.user?.parent_uuid || req.user?.tenant_uuid || req.user?.uuid;
+        return this.trunk.getTenantSipProfiles(tenant_uuid);
     }
 
     @Get(':uuid')

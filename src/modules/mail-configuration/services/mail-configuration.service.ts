@@ -220,14 +220,30 @@ export class MailConfigurationService {
                 }
             }
 
-            const mailOptions = {
+            const { cc, bcc } = payload;
+            const mailOptions: any = {
                 from: config.from ? config.from.toString() : config.username.toString(),
-                to,
+                // to,
                 subject: processedSubject,
                 html: processedBody,
             };
 
-            Logger.log(`[sendEmail] Sending mail from ${mailOptions.from}`);
+	     const recipientTo = to || (config.to && config.to.length ? config.to : undefined);
+            if (recipientTo) {
+                mailOptions.to = Array.isArray(recipientTo) ? recipientTo.join(',') : recipientTo;
+            }
+
+            const recipientCc = cc || (config.cc && config.cc.length ? config.cc : undefined);
+            if (recipientCc) {
+                mailOptions.cc = Array.isArray(recipientCc) ? recipientCc.join(',') : recipientCc;
+            }
+
+            const recipientBcc = bcc || (config.bcc && config.bcc.length ? config.bcc : undefined);
+            if (recipientBcc) {
+                mailOptions.bcc = Array.isArray(recipientBcc) ? recipientBcc.join(',') : recipientBcc;
+            }
+	     Logger.log(`[sendEmail] Sending mail from ${mailOptions.from} to ${mailOptions.to || '(none)'} (CC: ${mailOptions.cc || '(none)'}, BCC: ${mailOptions.bcc || '(none)'})`);
+
             const info = await transporter.sendMail(mailOptions);
             Logger.log(`[sendEmail] Email sent successfully: ${info.messageId}`);
 

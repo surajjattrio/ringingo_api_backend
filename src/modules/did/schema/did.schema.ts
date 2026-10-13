@@ -52,6 +52,10 @@ export class DidSchema {
     @Prop()
     did_as_cid : String
 
+    // Display name of DID, shown to agent while selecting caller id for manual calls
+    @Prop({ default: "" })
+    name : String
+
 }
 
 let didSchema = SchemaFactory.createForClass(DidSchema);

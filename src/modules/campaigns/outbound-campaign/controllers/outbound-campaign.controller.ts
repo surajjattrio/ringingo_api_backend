@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Response } from "express";
+import { randomUUID } from "crypto";
 import { deleteDecoraters, getDecoraters, postDecoraters, putDecoraters } from "src/swagger/swagger_decoraters";
 import { CreateOutboundCampaignDto } from "../dto/create-outbound-campaign.dto";
 import { OutboundCampaignService } from "../services/outbound-campaign.service";
@@ -7,6 +9,7 @@ import { PatchDto } from "src/modules/common/dto/patch.dto";
 import { OutboundCampaignDispositionDto } from "../dto/outbound-campaign-disposition";
 import { OutboundCampaignDialableStatusDto } from "../dto/outbound-campaign-dialable-status.dto";
 import { ResetLeadDto } from "../dto/reset-lead.dto";
+import { LeadResetProducerService } from "../lead-reset-queue/lead-reset-producer.service";
 
 @Controller("outbound-campaign")
 
@@ -21,7 +24,8 @@ export class OutboundCampaignController {
     */
 
     constructor(
-        private readonly outbound_campaign: OutboundCampaignService
+        private readonly outbound_campaign: OutboundCampaignService,
+        private readonly leadResetProducer: LeadResetProducerService
     ) { }
 
     @Post()
@@ -80,6 +84,21 @@ export class OutboundCampaignController {
 
     getLeadChurningData(@Query() queryParam) {
         return this.outbound_campaign.getLeadChurningData(queryParam);
+    }
+
+    @Get('lead-reset-status')
+    @getDecoraters("Retrieved lead reset job status successfully", "Poll the status of a queued lead reset job")
+
+    /*
+    @Usage             : Poll the status of a lead-reset job queued via POST lead-reset
+    @Method            : GET
+    @Param job_uuid    : uuid returned by POST lead-reset
+    @Param tenant_uuid : scopes the lookup to the requesting tenant
+    @return object     : lead_reset_jobs document — status is one of pending/inprogress/completed/failed
+    */
+
+    getLeadResetJobStatus(@Query('job_uuid') job_uuid: string, @Query('tenant_uuid') tenant_uuid: string) {
+        return this.outbound_campaign.getLeadResetJobStatus(job_uuid, tenant_uuid);
     }
 
     @Get(':uuid')
@@ -252,17 +271,30 @@ export class OutboundCampaignController {
     }
 
     @Post('lead-reset')
-    @putDecoraters("Lead reset successfully", "Update single lead reset using uuid")
+    @putDecoraters("Lead reset successfully", "Queue (or, if disabled, synchronously run) a lead reset using uuid")
 
     /*
-    @Usage               : Remove all leads from queue based on lead group uuid
+    @Usage               : Remove/re-add leads in queue based on lead group uuid. When
+                            ENABLE_LEAD_RECHURN_MICROSERVICE=true, queues the job to RabbitMQ for the
+                            standalone lead-churning consumer to process (202 + job_uuid, or 503 if it
+                            could not be queued) — resetLeads() itself is unchanged, only invoked from a
+                            queue message instead of this request. When unset/false, falls back to the
+                            original synchronous behaviour (resetLeads() called directly, same response
+                            shape as before this migration).
     @Method              : POST
     @Param uuid          : uuid of lead group will receive here
-    @return string       : Lead reset updated successfully
+    @return object       : { job_uuid } (async) or resetLeads()'s own response (sync fallback)
     */
 
-    ResetLeads(@Body() resetLeadDto: ResetLeadDto) {
-        return this.outbound_campaign.resetLeads(resetLeadDto);
+    async ResetLeads(@Body() resetLeadDto: ResetLeadDto, @Res({ passthrough: true }) response: Response) {
+        if (process.env.ENABLE_LEAD_RECHURN_MICROSERVICE !== 'true') {
+            return this.outbound_campaign.resetLeads(resetLeadDto);
+        }
+
+        const job_uuid = randomUUID();
+        await this.leadResetProducer.publishJob(job_uuid, resetLeadDto);
+        response.status(HttpStatus.ACCEPTED);
+        return { job_uuid };
     }
 
     @Delete('outbound-campaign-disposition/:uuid')

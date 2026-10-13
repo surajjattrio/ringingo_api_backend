@@ -119,4 +119,10 @@ export class CreateUserRoleDto {
     @IsNumberString()
     @IsIn(["0", "1"])
     bot_lead_info?: string
+
+    @ApiProperty({ description: '0 - Enable | 1 - Disable', default: "0" })
+    @IsOptional()
+    @IsNumberString()
+    @IsIn(["0", "1"])
+    is_lead_edit?: string
 }

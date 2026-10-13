@@ -58,6 +58,10 @@ export class TenantSchema {
     @Prop()
     sip_profile_uuid: String
 
+    // Multi SIP profile : all profiles assigned to tenant, sip_profile_uuid is default (first) one
+    @Prop({ type: [String], default: [] })
+    sip_profile_uuids: String[]
+
     @Prop()
     role?: String
 

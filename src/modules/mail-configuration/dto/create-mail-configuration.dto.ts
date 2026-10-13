@@ -38,6 +38,17 @@ export class CreateMailConfigurationDto {
     @IsString({ each: true })
     to: string[];
 
+    @ApiProperty({ type: [String], required: false })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    cc?: string[];
+
+    @ApiProperty({ type: [String], required: false })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    bcc?: string[];
 
     /*@ApiProperty({description: '0 - Active | 1 - Inactive' , default : "0"})
     @IsNumberString()

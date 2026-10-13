@@ -279,6 +279,20 @@ export class AgentCallCenterController {
     }
 
 
+    @Get("/manual-caller-ids/:campaign_uuid")
+    @getDecoraters("Retrieved caller ids successfully", "List caller ids allowed for manual calls in campaign")
+
+    /*
+    @Usage                : To get DID caller ids (number with name) agent can select for manual call
+    @Method               : GET
+    @Param campaign_uuid  : Outbound / blended campaign uuid
+    @return Object        : { manual_multi_caller_id, caller_ids : [{ number, name }] }
+    */
+
+    getManualCallerIds(@Param('campaign_uuid', new ParseUUIDPipe({ version: '4' })) campaign_uuid: string) {
+        return this.agent_call_center.getManualCallerIds(campaign_uuid);
+    }
+
     @Get("/logged-in-campaign/list")
     @getDecoraters("Retrieved campaign successfully", "List all campaign")
 

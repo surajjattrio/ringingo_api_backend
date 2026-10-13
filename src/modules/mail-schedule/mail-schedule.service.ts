@@ -35,6 +35,11 @@ export class MailScheduleService {
         let logMessages = {
             logSuccessMsg: "Mail Schedule updated successfully \n"
         }
+	 if (updateDto.timing) {
+            (updateDto as any).mail_status = "pending";
+            (updateDto as any).last_sent_date = "";
+            (updateDto as any).last_sent_time = "";
+        }
         return this.commonDbFn.update(this.mailSchedule, uuid, updateDto, JSON.stringify(logMessages));
     }
 

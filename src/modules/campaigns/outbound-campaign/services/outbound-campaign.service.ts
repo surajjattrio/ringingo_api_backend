@@ -20,6 +20,7 @@ import { TenantDocument, TenantSchema } from "src/modules/tenant/schema/tenant.s
 import { AgentLiveReportDocument, AgentLiveReportSchema } from 'src/modules/call-center/schema/agent-live-report.schema';
 import { SocketService } from 'src/modules/websockets/websockets.gateway';
 import { AgentCampaignLoginDocument, AgentCampaignLoginSchema } from 'src/modules/call-center/schema/agent-campaign-login.schema';
+import { LeadResetJobDocument, LeadResetJobSchema } from '../lead-reset-queue/lead-reset-job.schema';
 
 @Injectable()
 
@@ -44,6 +45,7 @@ export class OutboundCampaignService {
         @InjectModel(TenantSchema.name) private readonly tenant: Model<TenantDocument>,
         @InjectModel(AgentLiveReportSchema.name) private readonly agent_live_report: Model<AgentLiveReportDocument>,
         @InjectModel(AgentCampaignLoginSchema.name) private readonly agent_campaign_login: Model<AgentCampaignLoginDocument>,
+        @InjectModel(LeadResetJobSchema.name) private readonly lead_reset_job: Model<LeadResetJobDocument>,
         private readonly commonDbFn: CommonDBFunctions,
         private readonly socketService: SocketService
     ) { }
@@ -608,6 +610,21 @@ export class OutboundCampaignService {
             //return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Lead not found`);
         }
         //return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, `Lead group reset successfully`);
+    }
+
+    /*
+    @Usage         : Poll the status of a lead-reset job queued via resetLeads()'s async path
+    @Param job_uuid    : uuid returned when the job was queued
+    @Param tenant_uuid : scopes the lookup to the requesting tenant
+    @return object     : lead_reset_jobs document, or 404 if not found for this tenant
+    */
+
+    async getLeadResetJobStatus(job_uuid: string, tenant_uuid: string) {
+        const job = await this.lead_reset_job.findOne({ job_uuid, tenant_uuid }, { _id: 0, __v: 0 }).exec();
+        if (!job) {
+            return this.commonDbFn.sendResponseWithMessage(HttpStatus.NOT_FOUND, `Lead reset job not found`);
+        }
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, job);
     }
 
     async googleSheetLeadsReset(resetLeadDto: ResetLeadDto) {

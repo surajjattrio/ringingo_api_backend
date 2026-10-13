@@ -127,6 +127,7 @@ export class TenantService {
       where = [{ username }, { email }, { domain }, { company_code: company_code.toLowerCase() }];
     }
 
+    this.normalizeSipProfiles(createTenantDto, true);
     createTenantDto.password = this.commonFn.encode(createTenantDto.password);
     let logMessages = {
       logErrorMsg: "Tenant already exist \n",
@@ -235,6 +236,7 @@ export class TenantService {
       if (result?.statusCode == 409) { return result };
     }
 
+    this.normalizeSipProfiles(updateTenantDto);
     updateTenantDto.password = this.commonFn.encode(updateTenantDto.password);
     let logMessages = {
       logErrorMsg: `Tenant not found by uuid : ${uuid} \n`,
@@ -570,7 +572,8 @@ export class TenantService {
       auto_logout: "1",
       idle_timeout: "30",
       callqueue_selection: "1",
-      bot_lead_info: "1"
+      bot_lead_info: "1",
+      is_lead_edit: "0"
     }
     let result = new this.user_role(obj);
     result = await result.save();
@@ -608,6 +611,26 @@ export class TenantService {
     Logger.debug("Created default lead group for tenant");
   }
 
+  /*
+  @Usage : Multi SIP profile - keep sip_profile_uuid (default profile) and sip_profile_uuids in sync
+  */
+
+  normalizeSipProfiles(tenantDto: any, isCreate = false) {
+    // On update, list is changed only when it is sent (other forms send only sip_profile_uuid)
+    if (!isCreate && !Array.isArray(tenantDto?.sip_profile_uuids)) return;
+    const uuids: string[] = Array.isArray(tenantDto?.sip_profile_uuids)
+      ? tenantDto.sip_profile_uuids.filter((val, i, arr) => val && arr.indexOf(val) === i)
+      : [];
+    if (uuids.length == 0) {
+      tenantDto.sip_profile_uuids = tenantDto?.sip_profile_uuid ? [tenantDto.sip_profile_uuid] : [];
+      return;
+    }
+    if (!tenantDto.sip_profile_uuid || !uuids.includes(tenantDto.sip_profile_uuid)) {
+      tenantDto.sip_profile_uuid = uuids[0];
+    }
+    tenantDto.sip_profile_uuids = uuids;
+  }
+
   async getDetailsToGenerateSipProfile(sip_profile_uuid) {
     //Fetch all tenant with this sip profile
     let allTenants = await this.tenant.find({ sip_profile_uuid }, { domain: 1, _id: 0 }).exec();
@@ -622,7 +645,7 @@ export class TenantService {
     await this.commonFn.generateSipProfile(sipProfile[0], allTenants, allTrunk);
 
     //Reload sip profile
-    await this.commonFn.rescanSipProfile(sipProfile[0]?.name);
+    await this.commonFn.applySipProfileInFs(sipProfile[0]);
 
     //Restart sip profile
     //await this.commonFn.restartSipProfile(sipProfile[0]?.name);

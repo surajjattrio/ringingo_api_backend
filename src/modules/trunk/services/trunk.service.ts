@@ -165,6 +165,14 @@ export class TrunkService {
     */
 
     async update(uuid: string, createTrunkDto: CreateTrunkDto) {
+        const oldTrunk: any = await this.trunk.findOne({ uuid }, { name: 1, sip_profile_uuid: 1 }).lean().exec();
+        if (oldTrunk && oldTrunk.name != createTrunkDto.name) {
+            const nameExist = await this.trunk.countDocuments({ name: createTrunkDto.name, uuid: { $ne: uuid } }).exec();
+            if (nameExist > 0) {
+                Logger.error("Trunk already exist \n", putMethod);
+                return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `Trunk already exist`);
+            }
+        }
         createTrunkDto.password = this.commonFn.encode(createTrunkDto.password);
         let logMessages = {
             logErrorMsg: `Trunk not found by uuid : ${uuid} \n`,
@@ -175,7 +183,7 @@ export class TrunkService {
         if (response.statusCode == 404) { return response; }
 
         /*Create SIP Profile*/
-        this.getDetailsToGenerateSipProfile(createTrunkDto.sip_profile_uuid,createTrunkDto.name);
+        await this.syncTrunkSipProfile(oldTrunk, createTrunkDto.sip_profile_uuid, createTrunkDto.name);
         return response;
     }
 
@@ -281,6 +289,7 @@ export class TrunkService {
     */
 
     async getDetailsToGenerateSipProfile(sip_profile_uuid,killGateway:any = ""){
+        if (!sip_profile_uuid) return;
         //Fetch all tenant with this sip profile
         let allTenants = await this.tenant.find({ sip_profile_uuid }, { domain: 1, _id: 0 }).exec();
 
@@ -293,16 +302,72 @@ export class TrunkService {
         //Generate sip profile
         await this.commonFn.generateSipProfile(sipProfile[0], allTenants, allTrunk);
         
-        if (killGateway != "") {
+        const gatewaysToKill = (Array.isArray(killGateway) ? killGateway : [killGateway]).filter(name => name);
+        for (const gatewayName of gatewaysToKill) {
             //Kill gateway
-            await this.commonFn.killGateway(sipProfile[0]?.name,killGateway);
+            await this.commonFn.killGateway(sipProfile[0]?.name, gatewayName);
         }
 
-        //Reload sip profile
-        await this.commonFn.rescanSipProfile(sipProfile[0]?.name);
+        //Reload sip profile (start it in FS if it is a new additional profile)
+        await this.commonFn.applySipProfileInFs(sipProfile[0]);
 
 	//Restart sip profile
         //await this.commonFn.restartSipProfile(sipProfile[0]?.name);
+    }
+
+    /*
+    @Usage                 : Regenerate gateways when trunk is updated
+                             - profile changed : remove gateway from old profile, add in new profile
+                             - renamed         : remove old gateway name
+    */
+
+    async syncTrunkSipProfile(oldTrunk, newSipProfileUuid, newName) {
+        if (oldTrunk?.sip_profile_uuid && oldTrunk.sip_profile_uuid != newSipProfileUuid) {
+            await this.getDetailsToGenerateSipProfile(oldTrunk.sip_profile_uuid, oldTrunk.name);
+            await this.getDetailsToGenerateSipProfile(newSipProfileUuid);
+        } else if (oldTrunk?.name && oldTrunk.name != newName) {
+            await this.getDetailsToGenerateSipProfile(newSipProfileUuid, [oldTrunk.name, newName]);
+        } else {
+            await this.getDetailsToGenerateSipProfile(newSipProfileUuid, newName);
+        }
+    }
+
+    /*
+    @Usage                 : SIP profiles assigned to tenant (multi sip profile), first one is default
+    @Param tenant_uuid     : uuid of tenant
+    @return Array          : uuids of sip profiles
+    */
+
+    async getTenantSipProfileUuids(tenant_uuid) {
+        const tenant: any = await this.tenant.findOne({ uuid: tenant_uuid }, { sip_profile_uuid: 1, sip_profile_uuids: 1, _id: 0 }).lean().exec();
+        const uuids: string[] = Array.isArray(tenant?.sip_profile_uuids) && tenant.sip_profile_uuids.length > 0
+            ? [...tenant.sip_profile_uuids]
+            : [];
+        if (tenant?.sip_profile_uuid && !uuids.includes(tenant.sip_profile_uuid)) uuids.unshift(tenant.sip_profile_uuid);
+        return uuids;
+    }
+
+    /*
+    @Usage                 : SIP profiles (uuid & name) which tenant can select while creating trunk
+    @Param tenant_uuid     : uuid of tenant
+    @return Object         : Array of { uuid, name }
+    */
+
+    async getTenantSipProfiles(tenant_uuid) {
+        const uuids = await this.getTenantSipProfileUuids(tenant_uuid);
+        const profiles: any[] = await this.sip_profile.find({ uuid: { $in: uuids }, status: "0" }, { uuid: 1, name: 1, _id: 0 }).lean().exec();
+        const data = uuids.map(uuid => profiles.find(profile => profile.uuid == uuid)).filter(Boolean);
+        return this.commonDbFn.sendResponseWithMessage(HttpStatus.OK, data);
+    }
+
+    /*
+    @Usage                 : Selected sip profile must be assigned to tenant, else tenant default profile is used
+    */
+
+    async resolveTenantTrunkSipProfile(tenant_uuid, sip_profile_uuid) {
+        const uuids = await this.getTenantSipProfileUuids(tenant_uuid);
+        if (sip_profile_uuid && uuids.includes(String(sip_profile_uuid))) return String(sip_profile_uuid);
+        return uuids[0];
     }
 
     /*For Tenant */
@@ -318,17 +383,17 @@ export class TrunkService {
 	let mainAddingEntityUUID = tenant_uuid;
 	tenant_uuid = role == "manager" ? parent_uuid : tenant_uuid;
 
-        let sipProfileUUID = await this.tenant.find({ uuid : tenant_uuid },{ sip_profile_uuid : 1 , _id : 0 }).exec();
-        let where = [{name},{tenant_uuid}];
+        // Trunk name is FS gateway name, it must be unique across all tenants & sip profiles
+        let where = { name };
         tenantTrunkDto.created_flag = "1";
         tenantTrunkDto.password = this.commonFn.encode(tenantTrunkDto.password);
-        tenantTrunkDto.sip_profile_uuid = sipProfileUUID[0]?.sip_profile_uuid;
+        tenantTrunkDto.sip_profile_uuid = await this.resolveTenantTrunkSipProfile(tenant_uuid, tenantTrunkDto.sip_profile_uuid);
         let logMessages = {
             logErrorMsg: "Trunk already exist \n",
             logSuccessMsg: "Trunk created successfully \n"
         }
 	tenantTrunkDto.tenant_uuid = mainAddingEntityUUID;
-        let response = await this.commonDbFn.findAndInsert(this.trunk, where, tenantTrunkDto, JSON.stringify(logMessages),"and");
+        let response = await this.commonDbFn.findAndInsert(this.trunk, where, tenantTrunkDto, JSON.stringify(logMessages));
 
         if (response.statusCode == 409) { return response; }
 
@@ -347,19 +412,19 @@ export class TrunkService {
     async updateTrunkForTenant(uuid: string, tenantTrunkDto: TenantTrunkDto) {
         let { name , tenant_uuid , role , parent_uuid } = tenantTrunkDto;
 	let mainAddingEntityUUID = tenant_uuid;
-        const getConference = await this.trunk.findOne({ uuid }).exec();
+        const getConference: any = await this.trunk.findOne({ uuid }).lean().exec();
         if (getConference?.name != name) {
-            const checkConferenceExist = await this.trunk.find({ $and:[{name},{tenant_uuid}] }).count().exec();
+            // Trunk name is FS gateway name, it must be unique across all tenants & sip profiles
+            const checkConferenceExist = await this.trunk.find({ name, uuid: { $ne: uuid } }).count().exec();
             if (checkConferenceExist > 0) {
                 Logger.error("Trunk already exist \n", putMethod);
                 return this.commonDbFn.sendResponseWithMessage(HttpStatus.CONFLICT, `Trunk already exist`);
             }
         }
 	tenant_uuid = role == "manager" ? parent_uuid : tenant_uuid; 
-        let sipProfileUUID = await this.tenant.find({ uuid : tenant_uuid },{ sip_profile_uuid : 1 , _id : 0 }).exec();
         tenantTrunkDto.created_flag = "1";
         tenantTrunkDto.password = this.commonFn.encode(tenantTrunkDto.password);
-        tenantTrunkDto.sip_profile_uuid = sipProfileUUID[0]?.sip_profile_uuid;
+        tenantTrunkDto.sip_profile_uuid = await this.resolveTenantTrunkSipProfile(tenant_uuid, tenantTrunkDto.sip_profile_uuid);
         let logMessages = {
             logErrorMsg: `Trunk not found by uuid : ${uuid} \n`,
             logSuccessMsg: `Trunk updated successfully by uuid : ${uuid} \n`
@@ -370,7 +435,7 @@ export class TrunkService {
         if (response.statusCode == 404) { return response; }
 
         /*Create SIP Profile*/
-        this.getDetailsToGenerateSipProfile(tenantTrunkDto.sip_profile_uuid,name);
+        await this.syncTrunkSipProfile(getConference, tenantTrunkDto.sip_profile_uuid, name);
         return response;
     }
 

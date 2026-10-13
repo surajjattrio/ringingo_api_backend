@@ -50,10 +50,9 @@ export class MailService {
         });
     }
 
-    async sendReportMail(mailConfig: any, reportDataCsvOrAttachments: string | Array<{ filename: string, content: string }>, emailBody: string, reportName: string) {
-        const { host, username, password, port, to, from } = mailConfig;
-        console.log(`Preparing`,mailConfig);
-        
+    async sendReportMail(mailConfig: any, reportDataCsvOrAttachments: string | Array<{ filename: string, content: string }>, emailBody: string, reportName: string, customSubject?: string) {
+        const { host, username, password, port, to, from, cc, bcc } = mailConfig;
+        console.log(`Preparing mailConfig:`, { host, username, port, to, cc, bcc, from }); 
         const decryptedPassword = this.CommonFn.decode(password);
         
         var transporter = nodemailer.createTransport({
@@ -82,13 +81,41 @@ export class MailService {
             ];
         }
 
-        var mailOptions = {
+        const currentDateStr = new Date().toISOString().split('T')[0];
+        const defaultSubject = `Scheduled Report: ${reportName} - ${currentDateStr}`;
+        const finalSubject = customSubject || defaultSubject;
+
+        var mailOptions: any = {
             to: to.join(','),
             from: from || username,
-            subject: `Scheduled Report: ${reportName}`,
+            subject: finalSubject,
             html: emailBody || `<p>Please find the attached ${reportName} report.</p>`,
             attachments: attachments
         };
+
+	 if (to) {
+            if (Array.isArray(to) && to.length > 0) {
+                mailOptions.to = to.join(',');
+            } else if (typeof to === 'string' && to.trim()) {
+                mailOptions.to = to.trim();
+            }
+        }
+
+        if (cc) {
+            if (Array.isArray(cc) && cc.length > 0) {
+                mailOptions.cc = cc.join(',');
+            } else if (typeof cc === 'string' && cc.trim()) {
+                mailOptions.cc = cc.trim();
+            }
+        }
+
+        if (bcc) {
+            if (Array.isArray(bcc) && bcc.length > 0) {
+                mailOptions.bcc = bcc.join(',');
+            } else if (typeof bcc === 'string' && bcc.trim()) {
+                mailOptions.bcc = bcc.trim();
+            }
+        }
 
         return new Promise((resolve, reject) => {
             transporter.verify(function (error, success) {
@@ -101,7 +128,8 @@ export class MailService {
                         Logger.error("Failed to send scheduled report: ", error);
                         return reject(error);
                     }
-                    Logger.debug(`Scheduled report sent successfully to ${mailOptions.to}`);
+		     Logger.debug(`Scheduled report sent successfully to: ${mailOptions.to || '(none)'} | CC: ${mailOptions.cc || '(none)'} | BCC: ${mailOptions.bcc || '(none)'}`);
+             
                     resolve(true);
                 });
             });

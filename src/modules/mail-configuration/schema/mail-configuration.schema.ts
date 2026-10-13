@@ -38,6 +38,12 @@ export class MailConfigurationSchema {
     @Prop({ type: [String], default: [] })
     to: string[];
 
+    @Prop({ type: [String], default: [] })
+    cc: string[];
+
+    @Prop({ type: [String], default: [] })
+    bcc: string[];
+
     @Prop()
     status: String
 

@@ -4,6 +4,7 @@ import { Model } from "mongoose";
 import { putMethod } from "src/global_constant";
 import { CommonDBFunctions } from "src/modules/common/common_db_functions";
 import { CreateOutgoingRulesDto } from "../dto/create-outgoing-rules.dto";
+import { digitsOnly } from "../utils/cli-route";
 import { OutgoingRulesDocument, OutgoingRulesSchema } from "../schema/outgoing-rules.schema";
 import { TenantDocument, TenantSchema } from "src/modules/tenant/schema/tenant.schema";
 
@@ -31,8 +32,37 @@ export class OutgoingRulesService {
     @return Object         :  Success / Error 
     */
 
+    /*
+    @Usage : Validate rows of CLI based route
+    */
+
+    private validateCliRoute(createOutgoingRulesDto: CreateOutgoingRulesDto) {
+        if (createOutgoingRulesDto?.route_type != "cli") return null;
+        const rows: any[] = Array.isArray(createOutgoingRulesDto?.rules) ? (createOutgoingRulesDto.rules as any) : [];
+        if (rows.length == 0) return "Please add at least one route";
+        const isNumberList = (value: any) => (Array.isArray(value) ? value : String(value ?? "").split(",")).every((v: any) => String(v).trim() == "" || /^\d+$/.test(String(v).trim()));
+        const isNumberOrEmpty = (value: any) => String(value ?? "").trim() == "" || /^\d+$/.test(String(value).trim());
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i] || {};
+            const label = `Route ${i + 1}`;
+            const clis = (Array.isArray(row.match_cli) ? row.match_cli : []).filter((cli: any) => digitsOnly(cli) != "");
+            if (clis.length == 0) return `${label}: select at least one CLI`;
+            if (!row.trunk_uuid) return `${label}: select trunk`;
+            if (!isNumberList(row.cli_allowed_lengths) || !isNumberList(row.to_allowed_lengths)) return `${label}: allowed lengths must be numbers`;
+            for (const key of ["", "failover_trunk_1_", "failover_trunk_2_"]) {
+                if (!isNumberOrEmpty(row[`${key}cli_keep_last`]) || !isNumberOrEmpty(row[`${key}to_keep_last`])) return `${label}: keep last digits must be a number`;
+            }
+            for (const n of [1, 2]) {
+                if (row[`failover_trunk_${n}_uuid`] && !row[`failover_trunk_${n}_call_id`]) return `${label}: select Caller ID for Failover Trunk ${n}`;
+            }
+        }
+        return null;
+    }
+
     async create(createOutgoingRulesDto: CreateOutgoingRulesDto) {
         const { name , tenant_uuid , role } = createOutgoingRulesDto;
+        const cliRouteError = this.validateCliRoute(createOutgoingRulesDto);
+        if (cliRouteError) return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, cliRouteError);
         let where = [{name},{tenant_uuid}];
         let logMessages = {
             logErrorMsg: "Outgoing rule already exist \n",
@@ -193,6 +223,8 @@ export class OutgoingRulesService {
 
     async update(uuid: string, createOutgoingRulesDto: CreateOutgoingRulesDto) {
         const { name, tenant_uuid , role } = createOutgoingRulesDto;
+        const cliRouteError = this.validateCliRoute(createOutgoingRulesDto);
+        if (cliRouteError) return this.commonDbFn.sendResponseWithMessage(HttpStatus.BAD_REQUEST, cliRouteError);
         const getOutgoingRules = await this.outgoing_rules.findOne({ uuid }).exec();
         if (getOutgoingRules?.name != name) {
             const checkOutgoingRulesExist = await this.outgoing_rules.find({ $and: [{ name }, { tenant_uuid }] }).count().exec();

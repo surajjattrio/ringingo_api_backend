@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { VoiceBroadcastController } from './controllers/voice-broadcast.controller';
 import { VoiceBroadcastService } from './services/voice-broadcast.service';
+import { VoiceBroadcastLoggerService } from './services/voice-broadcast-logger.service';
 import { InjectConnection, MongooseModule } from '@nestjs/mongoose';
 import { VoiceBroadcastSchema, voiceBroadcastSchema } from './schema/voice-broadcast.schema';
 import { LeadManagementSchema, leadManagementSchema } from '../lead-management/schema/lead-management.schema';
@@ -27,6 +28,7 @@ import { TenantSchema, tenantSchema } from '../tenant/schema/tenant.schema';
         { name: TenantSchema.name, schema: tenantSchema },
     ] ) ],
     controllers: [ VoiceBroadcastController ],
-    providers: [ VoiceBroadcastService ]
+    providers: [ VoiceBroadcastService, VoiceBroadcastLoggerService ],
+    exports: [ VoiceBroadcastService ]
 } )
 export class VoiceBroadcastModule { }

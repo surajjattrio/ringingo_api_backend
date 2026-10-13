@@ -39,6 +39,18 @@ export class LeadBatchUpdateDto {
     @IsUUID()
     lead_group_uuid_filter: string
 
+    @ApiProperty()
+    @ValidateIf( val => val.campaign_uuid != "" )
+    @IsOptional()
+    @IsUUID()
+    campaign_uuid: string
+    
+    @ApiProperty()
+    @ValidateIf( val => val.campaign_uuid_filter != "" )
+    @IsOptional()
+    @IsUUID()
+    campaign_uuid_filter: string
+
     @IsOptional()
     tenant_uuid: string
 
